@@ -1,0 +1,2404 @@
+import {
+  ChangeEvent,
+  CSSProperties,
+  ReactNode,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import "./App.css";
+
+type PlatformId =
+  | "instagram"
+  | "twitter"
+  | "facebook"
+  | "linkedin"
+  | "tiktok"
+  | "youtube";
+
+type Platform = {
+  id: PlatformId;
+  label: string;
+  color: string;
+  icon: string;
+};
+
+type ImportedContent = {
+  id: string;
+  sourceType: SourceType;
+  sourceName: string;
+  rawText: string;
+  charCount: number;
+  importedAt: string;
+};
+
+type ContentChunk = {
+  id: string;
+  index: number;
+  text: string;
+  charCount: number;
+};
+
+type UploadedImage = {
+  name: string;
+  url: string;
+};
+
+type MediaType = "image" | "video";
+type MediaSource = "ai" | "user";
+
+type MediaAsset = {
+  id: string;
+  postId: string;
+  postCode: string;
+  type: MediaType;
+  source: MediaSource;
+  originalName: string;
+  storedName: string;
+  url: string;
+  mimeType: string;
+  size?: number;
+  version: number;
+  status: "ready" | "processing" | "failed";
+  createdAt: string;
+};
+
+type MediaCreatePayload = {
+  postId: string;
+  postCode: string;
+  mediaType: MediaType;
+  caption: string;
+  visualPrompt?: string;
+  platforms: PlatformId[];
+  endpointUrl: string;
+};
+
+type DraftPost = {
+  id: string;
+  chunkId: string;
+  caption: string;
+  platforms: PlatformId[];
+  image?: UploadedImage;
+  visualPrompt?: string;
+  status: "draft" | "reviewed" | "approved";
+};
+
+type QueueItem = {
+  id: string;
+  draftId: string;
+  caption: string;
+  platforms: PlatformId[];
+  image?: UploadedImage;
+  scheduledAt?: string;
+  publishMode: "now" | "scheduled";
+  status: "ready" | "scheduled" | "publishing" | "published" | "failed";
+  reach?: number;
+};
+
+type PostStat = {
+  id: number;
+  platform: PlatformId;
+  text: string;
+  date: string;
+  reach: number;
+  image: string | null;
+};
+
+type SourceType = "file" | "url" | "paste";
+type SplitMethod = "characters" | "paragraphs" | "markers";
+type StepName = "import" | "split" | "review" | "media" | "schedule" | "analytics";
+type Language = "en" | "id";
+
+type AuthProvider = "email" | "google" | "facebook" | "linkedin" | "x";
+
+type User = {
+  name: string;
+  email: string;
+  provider: AuthProvider;
+};
+
+type LandingMode = "landing" | "login" | "workspace";
+
+const PLATFORMS: Platform[] = [
+  { id: "instagram", label: "Instagram", color: "#E1306C", icon: "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°" },
+  { id: "twitter", label: "X / Twitter", color: "#1DA1F2", icon: "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â" },
+  { id: "facebook", label: "Facebook", color: "#1877F2", icon: "f" },
+  { id: "linkedin", label: "LinkedIn", color: "#0A66C2", icon: "in" },
+  { id: "tiktok", label: "TikTok", color: "#9B4DFF", icon: "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âª" },
+  { id: "youtube", label: "YouTube", color: "#FF0000", icon: "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¶" },
+];
+
+const DEMO_TEXT_EN = `Chapter 1: Digital Marketing Strategy in the Modern Era
+
+In a fast-moving digital era, brands can no longer rely on simply being present on social media. They need consistent, relevant content systems that adapt to audience behavior.
+
+Chapter 2: Content Repurposing
+
+One long document can be transformed into many short pieces of content for Instagram, LinkedIn, TikTok, YouTube Shorts, Facebook, and X. This strategy makes production more efficient.
+
+Chapter 3: Posting Automation
+
+With a good dashboard, users can split content, edit captions, add images, choose platforms, set schedules, and monitor performance statistics.
+
+Chapter 4: Visual Ideas
+
+A system can help generate image prompts based on the content, so every post has visuals that are more attractive, consistent, and contextually relevant.
+
+Chapter 5: Analytics
+
+Reach, engagement, number of posts, and platform performance should be monitored to understand which strategies are most effective.`;
+
+const DEMO_TEXT_ID = `Bab 1: Strategi Digital Marketing di Era Modern
+
+Di era digital yang bergerak sangat cepat, brand tidak lagi cukup hanya hadir di media sosial. Mereka perlu membangun sistem konten yang konsisten, relevan, dan mampu beradaptasi dengan perilaku audiens.
+
+Bab 2: Content Repurposing
+
+Satu dokumen panjang dapat diubah menjadi banyak konten pendek untuk Instagram, LinkedIn, TikTok, YouTube Shorts, Facebook, dan X. Strategi ini membuat produksi konten lebih efisien.
+
+Bab 3: Automasi Posting
+
+Dengan dashboard yang baik, pengguna dapat memotong konten, mengedit caption, menambahkan gambar, memilih platform, mengatur jadwal, dan memantau statistik performa.
+
+Bab 4: Ide Visual
+
+Sistem dapat membantu membuat prompt gambar berdasarkan isi konten, sehingga setiap posting memiliki visual yang lebih menarik, konsisten, dan sesuai konteks.
+
+Bab 5: Analitik
+
+Reach, engagement, jumlah posting, dan performa per platform perlu dipantau untuk mengetahui strategi mana yang paling efektif.`;
+
+const TEXT = {
+  en: {
+    brand: "Auto POST",
+    subtitle: "Content splitter & social scheduler",
+    langEnglish: "English",
+    langIndonesian: "Indonesia",
+
+    import: "Import",
+    split: "Split",
+    review: "Review",
+    schedule: "Schedule",
+    analytics: "Analytics",
+
+    importEyebrow: "Step 01",
+    importTitle: "Import Content",
+    importHeadline: "Start by importing your source content.",
+    importDesc:
+      "Upload a file, paste text, use a URL, or start from demo content. After successful import, continue to Split.",
+    sourceFile: "File",
+    sourceUrl: "URL",
+    sourcePaste: "Paste",
+    useDemo: "Use Demo",
+    uploadClick: "Click to upload a file",
+    uploadHelp: "TXT can be read directly. PDF/DOCX uses local demo preview for now.",
+    activeFile: "Active file:",
+    urlLabel: "Article / Web Page URL",
+    urlPlaceholder: "https://example.com/article",
+    pasteLabel: "Paste your content",
+    pastePlaceholder: "Paste article, script, transcript, or long-form content here...",
+    sourcePreview: "Source Preview",
+    noText: "No content imported yet.",
+    proceedToSplit: "Proceed to Split",
+
+    splitEyebrow: "Step 02",
+    splitTitle: "Split Content",
+    splitHeadline: "Choose how your content should be split.",
+    splitDesc:
+      "Set the split method, preview the source, then generate chunks for review.",
+    splitMethod: "Split Method",
+    byCharacters: "By Characters",
+    byParagraphs: "By Paragraphs",
+    byMarkers: "Start - End Codes",
+    maxChars: "Maximum characters per chunk",
+    startCode: "Start code",
+    endCode: "End code",
+    estimatedChunks: "Estimated chunks",
+    generateChunks: "Generate Chunks & Continue",
+    backToImport: "Back to Import",
+
+    reviewEyebrow: "Step 03",
+    reviewTitle: "Review & Edit",
+    reviewHeadline: "Edit captions and approve drafts.",
+    reviewDesc:
+      "Review each chunk, choose platforms, add an image, generate a visual prompt, then approve drafts for scheduling.",
+    chunk: "Chunk",
+    characters: "characters",
+    generateImagePrompt: "Generate Image Prompt",
+    visualPrompt: "Visual Prompt",
+    uploadImage: "Upload Image",
+    approve: "Approve",
+    approved: "Approved",
+    draft: "Draft",
+    continueToSchedule: "Continue to Schedule",
+    noChunksTitle: "No chunks yet.",
+    noChunksDesc: "Go back to Split and generate content chunks first.",
+
+    scheduleEyebrow: "Step 04",
+    scheduleTitle: "Schedule / Publish",
+    scheduleHeadline: "Prepare your publishing queue.",
+    scheduleDesc:
+      "Approved drafts appear here. You can publish now or set a schedule time.",
+    noApprovedTitle: "No approved drafts yet.",
+    noApprovedDesc: "Approve at least one draft in Review before scheduling.",
+    publishNow: "Publish Now",
+    schedulePost: "Schedule",
+    scheduled: "Scheduled",
+    published: "Published",
+    publishing: "Publishing...",
+    goToAnalytics: "Go to Analytics",
+
+    analyticsEyebrow: "Step 05",
+    analyticsTitle: "Analytics",
+    analyticsHeadline: "Content performance statistics.",
+    totalPosts: "Total Posts",
+    totalReach: "Total Reach",
+    activePlatforms: "Active Platforms",
+    averageReach: "Average Reach",
+    reachByPlatform: "Reach by Platform",
+    recentPosts: "Recent Posts",
+    platform: "Platform",
+    content: "Content",
+    image: "Image",
+    date: "Date",
+    reach: "Reach",
+
+    importFirstAlert: "Please import content first.",
+    splitFirstAlert: "Please generate chunks first.",
+    approveFirstAlert: "Please approve at least one draft first.",
+    platformAlert: "Please choose at least one platform first.",
+  },
+
+  id: {
+    brand: "Auto POST",
+    subtitle: "Pemotong konten & penjadwal posting",
+    langEnglish: "English",
+    langIndonesian: "Indonesia",
+
+    import: "Impor",
+    split: "Pecah",
+    review: "Review",
+    schedule: "Jadwal",
+    analytics: "Analitik",
+
+    importEyebrow: "Langkah 01",
+    importTitle: "Impor Konten",
+    importHeadline: "Mulai dengan memasukkan sumber konten.",
+    importDesc:
+      "Upload file, paste teks, gunakan URL, atau mulai dari konten demo. Setelah berhasil impor, lanjut ke tahap Pecah Konten.",
+    sourceFile: "File",
+    sourceUrl: "URL",
+    sourcePaste: "Paste",
+    useDemo: "Gunakan Demo",
+    uploadClick: "Klik untuk upload file",
+    uploadHelp: "TXT bisa dibaca langsung. PDF/DOCX sementara memakai preview demo lokal.",
+    activeFile: "File aktif:",
+    urlLabel: "URL Artikel / Halaman Web",
+    urlPlaceholder: "https://contoh.com/artikel",
+    pasteLabel: "Paste konten Anda",
+    pastePlaceholder: "Paste artikel, skrip, transkrip, atau konten panjang di sini...",
+    sourcePreview: "Preview Sumber",
+    noText: "Belum ada konten yang diimpor.",
+    proceedToSplit: "Lanjut ke Pecah Konten",
+
+    splitEyebrow: "Langkah 02",
+    splitTitle: "Pecah Konten",
+    splitHeadline: "Pilih cara konten akan dipecah.",
+    splitDesc:
+      "Atur metode pemecahan, cek preview sumber, lalu buat potongan konten untuk direview.",
+    splitMethod: "Metode Pecah",
+    byCharacters: "Per Karakter",
+    byParagraphs: "Per Paragraf",
+    byMarkers: "Kode Awal - Akhir",
+    maxChars: "Maksimal karakter per potongan",
+    startCode: "Kode awal",
+    endCode: "Kode akhir",
+    estimatedChunks: "Estimasi potongan",
+    generateChunks: "Buat Potongan & Lanjut",
+    backToImport: "Kembali ke Impor",
+
+    reviewEyebrow: "Langkah 03",
+    reviewTitle: "Review & Edit",
+    reviewHeadline: "Edit caption dan approve draft.",
+    reviewDesc:
+      "Review setiap potongan, pilih platform, tambahkan gambar, buat prompt visual, lalu approve draft untuk dijadwalkan.",
+    chunk: "Potongan",
+    characters: "karakter",
+    generateImagePrompt: "Buat Prompt Gambar",
+    visualPrompt: "Prompt Visual",
+    uploadImage: "Upload Gambar",
+    approve: "Approve",
+    approved: "Approved",
+    draft: "Draft",
+    continueToSchedule: "Lanjut ke Jadwal",
+    noChunksTitle: "Belum ada potongan.",
+    noChunksDesc: "Kembali ke Pecah Konten dan buat potongan terlebih dahulu.",
+
+    scheduleEyebrow: "Langkah 04",
+    scheduleTitle: "Jadwal / Publish",
+    scheduleHeadline: "Siapkan antrean posting.",
+    scheduleDesc:
+      "Draft yang sudah approved akan muncul di sini. Anda bisa publish sekarang atau mengatur jadwal.",
+    noApprovedTitle: "Belum ada draft approved.",
+    noApprovedDesc: "Approve minimal satu draft di Review sebelum menjadwalkan.",
+    publishNow: "Publish Sekarang",
+    schedulePost: "Jadwalkan",
+    scheduled: "Terjadwal",
+    published: "Terpublish",
+    publishing: "Mengirim...",
+    goToAnalytics: "Lihat Analitik",
+
+    analyticsEyebrow: "Langkah 05",
+    analyticsTitle: "Analitik",
+    analyticsHeadline: "Statistik performa konten.",
+    totalPosts: "Total Post",
+    totalReach: "Total Reach",
+    activePlatforms: "Platform Aktif",
+    averageReach: "Rata-rata Reach",
+    reachByPlatform: "Reach per Platform",
+    recentPosts: "Posting Terakhir",
+    platform: "Platform",
+    content: "Konten",
+    image: "Gambar",
+    date: "Tanggal",
+    reach: "Reach",
+
+    importFirstAlert: "Silakan impor konten terlebih dahulu.",
+    splitFirstAlert: "Silakan buat potongan konten terlebih dahulu.",
+    approveFirstAlert: "Silakan approve minimal satu draft terlebih dahulu.",
+    platformAlert: "Pilih minimal satu platform terlebih dahulu.",
+  },
+};
+
+function makeId(prefix: string) {
+  return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function extractByChars(text: string, maxChars: number): string[] {
+  if (!text || maxChars <= 0) return [];
+
+  const chunks: string[] = [];
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    let end = cursor + maxChars;
+
+    if (end < text.length) {
+      const nearestBreak = Math.max(
+        text.lastIndexOf("\n\n", end),
+        text.lastIndexOf(". ", end),
+        text.lastIndexOf(" ", end)
+      );
+
+      if (nearestBreak > cursor) end = nearestBreak + 1;
+    }
+
+    const piece = text.slice(cursor, end).trim();
+    if (piece) chunks.push(piece);
+
+    cursor = end + 1;
+  }
+
+  return chunks;
+}
+
+function extractByParagraphs(text: string, maxChars: number): string[] {
+  const paragraphs = text
+    .split(/\n\s*\n/g)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  const chunks: string[] = [];
+  let buffer = "";
+
+  for (const paragraph of paragraphs) {
+    const next = buffer ? `${buffer}\n\n${paragraph}` : paragraph;
+
+    if (next.length > maxChars && buffer) {
+      chunks.push(buffer.trim());
+      buffer = paragraph;
+    } else {
+      buffer = next;
+    }
+  }
+
+  if (buffer.trim()) chunks.push(buffer.trim());
+
+  return chunks;
+}
+
+function extractByMarkers(text: string, startCode: string, endCode: string): string[] {
+  if (!text || !startCode || !endCode) return [];
+
+  const chunks: string[] = [];
+  let searchFrom = 0;
+
+  while (true) {
+    const start = text.indexOf(startCode, searchFrom);
+    if (start === -1) break;
+
+    const end = text.indexOf(endCode, start + startCode.length);
+    if (end === -1) break;
+
+    const piece = text.slice(start + startCode.length, end).trim();
+    if (piece) chunks.push(piece);
+
+    searchFrom = end + endCode.length;
+  }
+
+  return chunks;
+}
+
+function formatNumber(value: number): string {
+  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
+  return String(value);
+}
+
+function getPlatform(id: PlatformId): Platform | undefined {
+  return PLATFORMS.find((item) => item.id === id);
+}
+
+type ButtonProps = {
+  children: ReactNode;
+  onClick?: () => void;
+  variant?: "primary" | "secondary";
+  disabled?: boolean;
+  type?: "button" | "submit";
+};
+
+function Button({
+  children,
+  onClick,
+  variant = "primary",
+  disabled = false,
+  type = "button",
+}: ButtonProps) {
+  return (
+    <button
+      type={type}
+      disabled={disabled}
+      onClick={onClick}
+      className={`btn btn-${variant}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+type TabButtonProps = {
+  active: boolean;
+  children: ReactNode;
+  badge?: number;
+  onClick: () => void;
+  disabled?: boolean;
+};
+
+function TabButton({
+  active,
+  children,
+  badge = 0,
+  onClick,
+  disabled = false,
+}: TabButtonProps) {
+  return (
+    <button
+      className={`tab-btn ${active ? "active" : ""} ${disabled ? "is-disabled" : ""}`}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+    >
+      <span>{children}</span>
+      {badge > 0 && <strong>{badge}</strong>}
+    </button>
+  );
+}
+
+type StatCardProps = {
+  title: string;
+  value: string | number;
+  caption: string;
+};
+
+function StatCard({ title, value, caption }: StatCardProps) {
+  return (
+    <div className="stat-card glass">
+      <span>{title}</span>
+      <strong>{value}</strong>
+      <small>{caption}</small>
+    </div>
+  );
+}
+
+export default function App() {
+  const [lang, setLang] = useState<Language>("en");
+  const t = TEXT[lang];
+
+  const [user, setUser] = useState<User | null>(null);
+  const [landingMode, setLandingMode] = useState<LandingMode>("landing");
+  const [loginEmail, setLoginEmail] = useState("demo@autopost.local");
+  const [loginPassword, setLoginPassword] = useState("demo123");
+  const [tutorialPlaying, setTutorialPlaying] = useState(true);
+
+  const [step, setStep] = useState<StepName>("import");
+  const [sourceType, setSourceType] = useState<SourceType>("file");
+  const [url, setUrl] = useState("");
+  const [pasteText, setPasteText] = useState("");
+  const [importedContent, setImportedContent] = useState<ImportedContent | null>(null);
+
+  const [splitMethod, setSplitMethod] = useState<SplitMethod>("characters");
+  const [maxChars, setMaxChars] = useState(900);
+  const [startCode, setStartCode] = useState("[START]");
+  const [endCode, setEndCode] = useState("[END]");
+
+  const [chunks, setChunks] = useState<ContentChunk[]>([]);
+  const [drafts, setDrafts] = useState<DraftPost[]>([]);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [mediaAssets, setMediaAssets] = useState<MediaAsset[]>([]);
+  const [mediaBusy, setMediaBusy] = useState<Record<string, boolean>>({});
+  const [mediaEndpoint] = useState("/api/media/create");
+  const [stats, setStats] = useState<PostStat[]>([]);
+
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const imageRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const mediaRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const demoText = lang === "en" ? DEMO_TEXT_EN : DEMO_TEXT_ID;
+  const rawText = importedContent?.rawText || "";
+
+  const hasImportedContent = rawText.trim().length > 0;
+  const hasChunks = chunks.length > 0;
+  const approvedDrafts = drafts.filter((draft) => draft.status === "approved");
+  const hasApprovedDrafts = approvedDrafts.length > 0;
+  const hasPublishedPosts = stats.length > 0;
+
+  const estimatedChunks = useMemo(() => {
+    if (!rawText.trim()) return 0;
+
+    if (splitMethod === "paragraphs") {
+      return extractByParagraphs(rawText, maxChars).length;
+    }
+
+    if (splitMethod === "markers") {
+      return extractByMarkers(rawText, startCode, endCode).length;
+    }
+
+    return extractByChars(rawText, maxChars).length;
+  }, [rawText, splitMethod, maxChars, startCode, endCode]);
+
+  const totalReach = useMemo(() => {
+    return stats.reduce((total, item) => total + item.reach, 0);
+  }, [stats]);
+
+  const activePlatforms = useMemo(() => {
+    return new Set(stats.map((item) => item.platform)).size;
+  }, [stats]);
+
+  function importContent(sourceTypeValue: SourceType, sourceName: string, text: string) {
+    const cleanText = text.trim();
+
+    setImportedContent({
+      id: makeId("content"),
+      sourceType: sourceTypeValue,
+      sourceName,
+      rawText: cleanText,
+      charCount: cleanText.length,
+      importedAt: new Date().toISOString(),
+    });
+
+    setChunks([]);
+    setDrafts([]);
+    setQueue([]);
+    setMediaAssets([]);
+    setMediaBusy({});
+  }
+
+  function handleUseDemo() {
+    importContent("paste", lang === "en" ? "demo-content.txt" : "konten-demo.txt", demoText);
+  }
+
+  function handleFileUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const fileName = file.name;
+    const lower = file.name.toLowerCase();
+
+    if (lower.endsWith(".txt")) {
+      const reader = new FileReader();
+
+      reader.onload = () => {
+        importContent("file", fileName, String(reader.result || ""));
+      };
+
+      reader.readAsText(file);
+      return;
+    }
+
+    if (lower.endsWith(".pdf") || lower.endsWith(".docx") || lower.endsWith(".doc")) {
+      importContent(
+        "file",
+        fileName,
+        `${demoText}\n\n[Local preview note]\nPDF/DOCX parsing will be connected to backend in the next phase.`
+      );
+      return;
+    }
+
+    alert(
+      lang === "en"
+        ? "Supported files: TXT, PDF, DOC, DOCX."
+        : "File yang didukung: TXT, PDF, DOC, DOCX."
+    );
+  }
+
+  function handleUrlImport() {
+    if (!url.trim()) return;
+
+    importContent(
+      "url",
+      url.trim(),
+      `${lang === "en" ? "Content from URL" : "Konten dari URL"}: ${url.trim()}\n\n${demoText}`
+    );
+  }
+
+  function handlePasteImport() {
+    if (!pasteText.trim()) return;
+    importContent("paste", "manual-paste", pasteText);
+  }
+
+  function proceedToSplit() {
+    if (!hasImportedContent) {
+      alert(t.importFirstAlert);
+      return;
+    }
+
+    setStep("split");
+  }
+
+  function generateChunksAndContinue() {
+    if (!hasImportedContent) {
+      alert(t.importFirstAlert);
+      return;
+    }
+
+    let result: string[] = [];
+
+    if (splitMethod === "paragraphs") {
+      result = extractByParagraphs(rawText, maxChars);
+    } else if (splitMethod === "markers") {
+      result = extractByMarkers(rawText, startCode, endCode);
+    } else {
+      result = extractByChars(rawText, maxChars);
+    }
+
+    if (result.length === 0) {
+      result = [rawText.slice(0, 5000)];
+    }
+
+    const nextChunks: ContentChunk[] = result.map((text, index) => ({
+      id: makeId(`chunk_${index + 1}`),
+      index: index + 1,
+      text,
+      charCount: text.length,
+    }));
+
+    const nextDrafts: DraftPost[] = nextChunks.map((chunk) => ({
+      id: makeId(`draft_${chunk.index}`),
+      chunkId: chunk.id,
+      caption: chunk.text,
+      platforms: [],
+      status: "draft",
+    }));
+
+    setChunks(nextChunks);
+    setDrafts(nextDrafts);
+    setStep("review");
+  }
+
+  function updateDraftCaption(draftId: string, caption: string) {
+    setDrafts((prev) =>
+      prev.map((draft) =>
+        draft.id === draftId
+          ? {
+              ...draft,
+              caption,
+              status: draft.status === "approved" ? "reviewed" : draft.status,
+            }
+          : draft
+      )
+    );
+  }
+
+  function togglePlatform(draftId: string, platformId: PlatformId) {
+    setDrafts((prev) =>
+      prev.map((draft) => {
+        if (draft.id !== draftId) return draft;
+
+        const nextPlatforms = draft.platforms.includes(platformId)
+          ? draft.platforms.filter((item) => item !== platformId)
+          : [...draft.platforms, platformId];
+
+        return {
+          ...draft,
+          platforms: nextPlatforms,
+          status: draft.status === "approved" ? "reviewed" : draft.status,
+        };
+      })
+    );
+  }
+
+  function handleImageUpload(draftId: string, event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const ext = file.name.split(".").pop()?.toLowerCase();
+
+    if (!ext || !["jpg", "jpeg", "png", "webp"].includes(ext)) {
+      alert("Supported image formats: JPG, JPEG, PNG, WEBP.");
+      return;
+    }
+
+    const uploadedImage: UploadedImage = {
+      name: `post_${draftId.slice(-5)}.${ext}`,
+      url: URL.createObjectURL(file),
+    };
+
+    setDrafts((prev) =>
+      prev.map((draft) =>
+        draft.id === draftId
+          ? {
+              ...draft,
+              image: uploadedImage,
+              status: draft.status === "approved" ? "reviewed" : draft.status,
+            }
+          : draft
+      )
+    );
+  }
+
+  function generateVisualPrompt(draftId: string) {
+    const draft = drafts.find((item) => item.id === draftId);
+    if (!draft) return;
+
+    const prompt =
+      lang === "en"
+        ? `Modern social media visual, pastel earth-tone palette, editorial composition, clean layout, warm natural lighting, suitable for Auto POST. Main idea: ${draft.caption.slice(0, 220)}`
+        : `Visual media sosial modern, palet pastel-earth, komposisi editorial, layout bersih, pencahayaan hangat natural, cocok untuk Auto POST. Ide utama: ${draft.caption.slice(0, 220)}`;
+
+    setDrafts((prev) =>
+      prev.map((item) =>
+        item.id === draftId
+          ? {
+              ...item,
+              visualPrompt: prompt,
+            }
+          : item
+      )
+    );
+  }
+
+  function approveDraft(draftId: string) {
+    const draft = drafts.find((item) => item.id === draftId);
+    if (!draft) return;
+
+    if (!draft.caption.trim()) return;
+    if (draft.platforms.length === 0) {
+      alert(t.platformAlert);
+      return;
+    }
+
+    setDrafts((prev) =>
+      prev.map((item) =>
+        item.id === draftId
+          ? {
+              ...item,
+              status: "approved",
+            }
+          : item
+      )
+    );
+  }
+
+  function continueToSchedule() {
+    if (!hasApprovedDrafts) {
+      alert(t.approveFirstAlert);
+      return;
+    }
+
+    const existingDraftIds = new Set(queue.map((item) => item.draftId));
+
+    const newQueueItems: QueueItem[] = approvedDrafts
+      .filter((draft) => !existingDraftIds.has(draft.id))
+      .map((draft) => ({
+        id: makeId("queue"),
+        draftId: draft.id,
+        caption: draft.caption,
+        platforms: draft.platforms,
+        image: draft.image,
+        publishMode: "scheduled",
+        status: "ready",
+      }));
+
+    if (newQueueItems.length > 0) {
+      setQueue((prev) => [...prev, ...newQueueItems]);
+    }
+
+    setStep("schedule");
+  }
+
+  function updateSchedule(queueId: string, scheduledAt: string) {
+    setQueue((prev) =>
+      prev.map((item) =>
+        item.id === queueId
+          ? {
+              ...item,
+              scheduledAt,
+              publishMode: "scheduled",
+              status: scheduledAt ? "scheduled" : "ready",
+            }
+          : item
+      )
+    );
+  }
+
+  async function publishQueueItem(queueId: string) {
+    const item = queue.find((queueItem) => queueItem.id === queueId);
+    if (!item) return;
+
+    setQueue((prev) =>
+      prev.map((queueItem) =>
+        queueItem.id === queueId
+          ? {
+              ...queueItem,
+              publishMode: "now",
+              status: "publishing",
+            }
+          : queueItem
+      )
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 900));
+
+    const now = new Date();
+    const date = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, "0"),
+      String(now.getDate()).padStart(2, "0"),
+    ].join("-");
+
+    const time = [
+      String(now.getHours()).padStart(2, "0"),
+      String(now.getMinutes()).padStart(2, "0"),
+    ].join(":");
+
+    const newStats: PostStat[] = item.platforms.map((platform) => ({
+      id: Date.now() + Math.random(),
+      platform,
+      text: `${item.caption.slice(0, 90)}...`,
+      date: `${date} ${time}`,
+      reach: Math.floor(Math.random() * 9000 + 1500),
+      image: item.image?.name || null,
+    }));
+
+    setStats((prev) => [...newStats, ...prev]);
+
+    setQueue((prev) =>
+      prev.map((queueItem) =>
+        queueItem.id === queueId
+          ? {
+              ...queueItem,
+              status: "published",
+              reach: newStats.reduce((total, stat) => total + stat.reach, 0),
+            }
+          : queueItem
+      )
+    );
+  }
+
+  function switchLanguage(nextLang: Language) {
+    setLang(nextLang);
+  }
+
+  function stepDisabled(target: StepName) {
+    if (target === "import") return false;
+    if (target === "split") return !hasImportedContent;
+    if (target === "review") return !hasChunks;
+    if (target === "media") return !hasApprovedDrafts;
+    if (target === "schedule") return !hasApprovedDrafts;
+    if (target === "analytics") return !hasPublishedPosts && queue.length === 0;
+    return false;
+  }
+
+  function getDraftPostCode(draftId: string) {
+    const index = drafts.findIndex((draft) => draft.id === draftId);
+    return `post-${String(index + 1).padStart(3, "0")}`;
+  }
+
+  function getMediaVersion(postId: string, source: MediaSource, type: MediaType) {
+    return (
+      mediaAssets.filter(
+        (asset) =>
+          asset.postId === postId &&
+          asset.source === source &&
+          asset.type === type
+      ).length + 1
+    );
+  }
+
+  function normalizeExtension(fileName: string, mediaType: MediaType) {
+    const ext = fileName.split(".").pop()?.toLowerCase();
+
+    if (!ext) return mediaType === "image" ? "png" : "mp4";
+
+    if (mediaType === "image") {
+      if (["jpg", "jpeg", "png", "webp", "gif"].includes(ext)) return ext;
+      return "png";
+    }
+
+    if (["mp4", "mov", "webm", "mkv"].includes(ext)) return ext;
+    return "mp4";
+  }
+
+  function buildMediaFileName(
+    postCode: string,
+    source: MediaSource,
+    mediaType: MediaType,
+    version: number,
+    extension: string
+  ) {
+    return `ap-${postCode}-${source}-${mediaType}-v${version}.${extension}`;
+  }
+
+  function createMediaSvgDataUrl(postCode: string, mediaType: MediaType) {
+    const label =
+      mediaType === "image"
+        ? lang === "en"
+          ? "AI PHOTO"
+          : "FOTO AI"
+        : lang === "en"
+          ? "AI VIDEO"
+          : "VIDEO AI";
+
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800">
+        <defs>
+          <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#F5F1E8"/>
+            <stop offset="48%" stop-color="#DDBEA9"/>
+            <stop offset="100%" stop-color="#A3B18A"/>
+          </linearGradient>
+        </defs>
+        <rect width="1200" height="800" rx="54" fill="url(#bg)"/>
+        <circle cx="1040" cy="120" r="180" fill="#D4A5A5" opacity="0.28"/>
+        <circle cx="180" cy="700" r="240" fill="#CCD5AE" opacity="0.35"/>
+        <rect x="90" y="90" width="1020" height="620" rx="46" fill="rgba(255,255,255,0.42)" stroke="rgba(74,87,89,0.14)" stroke-width="4"/>
+        <text x="110" y="180" font-family="Arial, sans-serif" font-size="54" font-weight="800" fill="#4A5759">Auto POST</text>
+        <text x="110" y="252" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#B08968">${postCode}</text>
+        <text x="110" y="595" font-family="Arial, sans-serif" font-size="92" font-weight="900" fill="#6B7B5D">${label}</text>
+        <text x="110" y="655" font-family="Arial, sans-serif" font-size="28" fill="#4A5759">Placeholder media. Ready to connect with backend endpoint.</text>
+      </svg>
+    `;
+
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  }
+
+  async function createMediaByPlaceholder(draftId: string, mediaType: MediaType) {
+    const draft = drafts.find((item) => item.id === draftId);
+    if (!draft) return;
+
+    const postCode = getDraftPostCode(draftId);
+    const busyKey = `${draftId}_${mediaType}_ai`;
+
+    const payload: MediaCreatePayload = {
+      postId: draft.id,
+      postCode,
+      mediaType,
+      caption: draft.caption,
+      visualPrompt: draft.visualPrompt,
+      platforms: draft.platforms,
+      endpointUrl: mediaEndpoint,
+    };
+
+    console.log("Prepared media create payload for backend:", payload);
+
+    setMediaBusy((prev) => ({
+      ...prev,
+      [busyKey]: true,
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    const version = getMediaVersion(draft.id, "ai", mediaType);
+    const extension = mediaType === "image" ? "svg" : "mp4";
+    const storedName = buildMediaFileName(postCode, "ai", mediaType, version, extension);
+
+    const asset: MediaAsset = {
+      id: makeId("media"),
+      postId: draft.id,
+      postCode,
+      type: mediaType,
+      source: "ai",
+      originalName: storedName,
+      storedName,
+      url: mediaType === "image" ? createMediaSvgDataUrl(postCode, mediaType) : "",
+      mimeType: mediaType === "image" ? "image/svg+xml" : "video/mp4",
+      version,
+      status: "ready",
+      createdAt: new Date().toISOString(),
+    };
+
+    setMediaAssets((prev) => [asset, ...prev]);
+
+    setMediaBusy((prev) => ({
+      ...prev,
+      [busyKey]: false,
+    }));
+  }
+
+  function importMediaForDraft(
+    draftId: string,
+    mediaType: MediaType,
+    event: ChangeEvent<HTMLInputElement>
+  ) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const isImage = mediaType === "image";
+    const isVideo = mediaType === "video";
+
+    if (isImage && !file.type.startsWith("image/")) {
+      alert(lang === "en" ? "Please choose an image file." : "Silakan pilih file gambar.");
+      return;
+    }
+
+    if (isVideo && !file.type.startsWith("video/")) {
+      alert(lang === "en" ? "Please choose a video file." : "Silakan pilih file video.");
+      return;
+    }
+
+    const postCode = getDraftPostCode(draftId);
+    const version = getMediaVersion(draftId, "user", mediaType);
+    const extension = normalizeExtension(file.name, mediaType);
+    const storedName = buildMediaFileName(postCode, "user", mediaType, version, extension);
+
+    const asset: MediaAsset = {
+      id: makeId("media"),
+      postId: draftId,
+      postCode,
+      type: mediaType,
+      source: "user",
+      originalName: file.name,
+      storedName,
+      url: URL.createObjectURL(file),
+      mimeType: file.type,
+      size: file.size,
+      version,
+      status: "ready",
+      createdAt: new Date().toISOString(),
+    };
+
+    setMediaAssets((prev) => [asset, ...prev]);
+
+    console.log("Prepared imported media for backend upload:", {
+      postId: draftId,
+      postCode,
+      mediaType,
+      originalName: file.name,
+      storedName,
+      mimeType: file.type,
+      size: file.size,
+      endpointUrl: "/api/media/import",
+    });
+
+    event.target.value = "";
+  }
+  function handleStartCreating() {
+    if (!user) {
+      setLandingMode("login");
+      return;
+    }
+
+    setLandingMode("workspace");
+    setStep("import");
+  }
+
+  function handleDemoLogin(provider: AuthProvider) {
+    setUser({
+      name:
+        provider === "email"
+          ? loginEmail.split("@")[0] || "Demo User"
+          : `${provider.charAt(0).toUpperCase()}${provider.slice(1)} User`,
+      email:
+        provider === "email"
+          ? loginEmail || "demo@autopost.local"
+          : `${provider}@autopost.local`,
+      provider,
+    });
+
+    setLandingMode("workspace");
+    setStep("import");
+  }
+
+  function handleEmailLogin(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!loginEmail.trim()) {
+      alert(lang === "en" ? "Please enter your email." : "Silakan isi email.");
+      return;
+    }
+
+    handleDemoLogin("email");
+  }
+
+  function handleLogout() {
+    setUser(null);
+    setLandingMode("landing");
+    setStep("import");
+  }
+
+  function openWorkspaceStep(target: StepName) {
+    if (!user) {
+      setLandingMode("login");
+      return;
+    }
+
+    if (stepDisabled(target)) return;
+
+    setLandingMode("workspace");
+    setStep(target);
+  }
+
+  function renderLandingHeader() {
+    return (
+      <header className="landing-topbar">
+        <div className="landing-topbar-inner">
+          <div className="brand landing-brand">
+            <img src="/logo-autopost.svg" alt="Auto POST" className="brand-logo" />
+            <div>
+              <strong>{t.brand}</strong>
+              <span>{t.subtitle}</span>
+            </div>
+          </div>
+
+          <div className="landing-top-actions">
+            <div className="lang-switcher landing-lang">
+              <button
+                className={lang === "en" ? "active" : ""}
+                onClick={() => switchLanguage("en")}
+              >
+                {t.langEnglish}
+              </button>
+              <button
+                className={lang === "id" ? "active" : ""}
+                onClick={() => switchLanguage("id")}
+              >
+                {t.langIndonesian}
+              </button>
+            </div>
+
+            {!user && (
+              <button className="landing-login-btn" onClick={() => setLandingMode("login")}>
+                Login
+              </button>
+            )}
+
+            {user && (
+              <button className="landing-login-btn logout" onClick={handleLogout}>
+                Logout
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+    );
+  }
+
+  function renderLandingHero() {
+    const title =
+      lang === "en"
+        ? "Turn long content into ready-to-post social media campaigns."
+        : "Ubah konten panjang menjadi kampanye media sosial siap posting.";
+
+    const desc =
+      lang === "en"
+        ? "Auto POST helps creators, teams, educators, consultants, and businesses transform long-form content into structured social media posts in minutes. Import your document, split it into clear content pieces, review captions, prepare photos or videos, schedule posts, and track performance from one guided workflow."
+        : "Auto POST membantu kreator, tim konten, pendidik, konsultan, dan pelaku bisnis mengubah konten panjang menjadi rangkaian posting media sosial dalam alur yang rapi. Impor dokumen, pecah menjadi potongan konten, review caption, siapkan foto atau video, jadwalkan posting, lalu pantau performanya dari satu workflow.";
+
+    const proposition =
+      lang === "en"
+        ? [
+            "Convert long documents into multiple post drafts.",
+            "Review every caption before publishing.",
+            "Create or import photo/video assets per post.",
+            "Prepare a publishing queue without losing context.",
+          ]
+        : [
+            "Ubah dokumen panjang menjadi banyak draft posting.",
+            "Review setiap caption sebelum dipublish.",
+            "Buat atau impor foto/video untuk setiap posting.",
+            "Siapkan antrean posting tanpa kehilangan konteks.",
+          ];
+
+    return (
+      <section className="landing-container">
+        <div className="landing-grid">
+          <section className="landing-copy-card glass">
+            <p className="eyebrow">
+              {lang === "en" ? "Content automation, made simple" : "Otomasi konten yang mudah dipakai"}
+            </p>
+
+            <h1>{title}</h1>
+
+            <p>{desc}</p>
+
+            <div className="landing-benefits">
+              {proposition.map((item) => (
+                <div className="landing-benefit" key={item}>
+                  <span>ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ</span>
+                  <strong>{item}</strong>
+                </div>
+              ))}
+            </div>
+
+            <div className="landing-cta-row">
+              <Button onClick={handleStartCreating}>
+                {lang === "en" ? "Start Creating" : "Mulai Membuat Konten"}
+              </Button>
+
+              {!user && (
+                <Button variant="secondary" onClick={() => setLandingMode("login")}>
+                  Login
+                </Button>
+              )}
+
+              {user && (
+                <Button variant="secondary" onClick={handleLogout}>
+                  Logout
+                </Button>
+              )}
+            </div>
+          </section>
+
+          <section className="tutorial-card glass">
+            <div className="tutorial-frame">
+              <iframe
+                key={tutorialPlaying ? "tutorial-playing" : "tutorial-stopped"}
+                src={
+                  tutorialPlaying
+                    ? "https://www.youtube.com/embed/qevrfyDl0ms?autoplay=1&mute=1&controls=1&loop=1&playlist=qevrfyDl0ms&rel=0&modestbranding=1"
+                    : "https://www.youtube.com/embed/qevrfyDl0ms?autoplay=0&mute=1&controls=1&rel=0&modestbranding=1"
+                }
+                title="Auto POST Tutorial"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+              />
+
+              <div className="tutorial-controls">
+                <button
+                  type="button"
+                  className={tutorialPlaying ? "active" : ""}
+                  onClick={() => setTutorialPlaying(true)}
+                >
+                  Play
+                </button>
+                <button
+                  type="button"
+                  className={!tutorialPlaying ? "active" : ""}
+                  onClick={() => setTutorialPlaying(false)}
+                >
+                  Stop
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+    );
+  }
+
+  function renderLoginPanel() {
+    if (landingMode !== "login" || user) return null;
+
+    return (
+      <section className="landing-container auth-section">
+        <div className="auth-card glass">
+          <div>
+            <p className="eyebrow">{lang === "en" ? "Login required" : "Login diperlukan"}</p>
+            <h2>{lang === "en" ? "Sign in to start importing content." : "Masuk untuk mulai mengimpor konten."}</h2>
+            <p className="section-desc">
+              {lang === "en"
+                ? "This is a frontend prototype login. Social login buttons are placeholders and will be connected to real OAuth later."
+                : "Ini login prototipe frontend. Tombol social login masih placeholder dan nanti bisa dihubungkan ke OAuth asli."}
+            </p>
+          </div>
+
+          <form className="auth-form" onSubmit={handleEmailLogin}>
+            <div className="form-group">
+              <label>Email</label>
+              <input
+                value={loginEmail}
+                onChange={(event) => setLoginEmail(event.target.value)}
+                placeholder="demo@autopost.local"
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Password</label>
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={(event) => setLoginPassword(event.target.value)}
+                placeholder="demo123"
+              />
+            </div>
+
+            <Button type="submit">
+              {lang === "en" ? "Login with Email" : "Login dengan Email"}
+            </Button>
+          </form>
+
+          <div className="auth-side-panel">
+            <div className="auth-side-head">
+              <span className="auth-side-kicker">
+                {lang === "en" ? "New here?" : "Pengguna baru?"}
+              </span>
+
+              <h3>
+                {lang === "en" ? "Register New Account" : "Daftar Akun Baru"}
+              </h3>
+
+              <p>
+                {lang === "en"
+                  ? "Click here to create a new account, or continue with a social login provider."
+                  : "Klik di sini untuk membuat akun baru, atau lanjut login dengan akun sosial."}
+              </p>
+
+              <button
+                type="button"
+                className="register-cta-btn"
+                onClick={() =>
+                  alert(
+                    lang === "en"
+                      ? "Register page placeholder. We can build the real register flow next."
+                      : "Halaman register masih placeholder. Berikutnya kita bisa buat alur register asli."
+                  )
+                }
+              >
+                {lang === "en" ? "Create Account" : "Buat Akun"}
+              </button>
+            </div>
+
+            <div className="social-login-grid social-login-grid-modern">
+              <button
+                type="button"
+                className="social-btn google"
+                onClick={() => handleDemoLogin("google")}
+              >
+                <span className="social-icon google-icon">G</span>
+                <span className="social-label">
+                  {lang === "en" ? "Continue with Google" : "Lanjut dengan Google"}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                className="social-btn facebook"
+                onClick={() => handleDemoLogin("facebook")}
+              >
+                <span className="social-icon facebook-icon">f</span>
+                <span className="social-label">
+                  {lang === "en" ? "Continue with Facebook" : "Lanjut dengan Facebook"}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                className="social-btn instagram"
+                onClick={() => alert(lang === "en" ? "Instagram login placeholder." : "Login Instagram masih placeholder.")}
+              >
+                <span className="social-icon instagram-icon">◎</span>
+                <span className="social-label">
+                  {lang === "en" ? "Continue with Instagram" : "Lanjut dengan Instagram"}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                className="social-btn tiktok"
+                onClick={() => alert(lang === "en" ? "TikTok login placeholder." : "Login TikTok masih placeholder.")}
+              >
+                <span className="social-icon tiktok-icon">♪</span>
+                <span className="social-label">
+                  {lang === "en" ? "Continue with TikTok" : "Lanjut dengan TikTok"}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                className="social-btn linkedin"
+                onClick={() => handleDemoLogin("linkedin")}
+              >
+                <span className="social-icon linkedin-icon">in</span>
+                <span className="social-label">
+                  {lang === "en" ? "Continue with LinkedIn" : "Lanjut dengan LinkedIn"}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                className="social-btn x"
+                onClick={() => handleDemoLogin("x")}
+              >
+                <span className="social-icon x-icon">X</span>
+                <span className="social-label">
+                  {lang === "en" ? "Continue with X" : "Lanjut dengan X"}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  function renderWorkspaceMenu() {
+    const items: Array<{
+      step: StepName;
+      title: string;
+      desc: string;
+      badge?: number;
+    }> = [
+      {
+        step: "import",
+        title: lang === "en" ? "Import File" : "Impor File",
+        desc:
+          lang === "en"
+            ? "Upload file, URL, paste text, or use demo."
+            : "Upload file, URL, paste teks, atau gunakan demo.",
+        badge: importedContent ? 1 : 0,
+      },
+      {
+        step: "split",
+        title: lang === "en" ? "Split File" : "Pecah File",
+        desc:
+          lang === "en"
+            ? "Choose how the source content is split."
+            : "Pilih cara konten sumber dipecah.",
+        badge: chunks.length,
+      },
+      {
+        step: "review",
+        title: lang === "en" ? "Review Content" : "Review Konten",
+        desc:
+          lang === "en"
+            ? "Edit caption, choose platform, approve draft."
+            : "Edit caption, pilih platform, approve draft.",
+        badge: drafts.length,
+      },
+      {
+        step: "media",
+        title: lang === "en" ? "Media Studio" : "Studio Media",
+        desc:
+          lang === "en"
+            ? "Create or import photo/video per post."
+            : "Buat atau impor foto/video per posting.",
+        badge: mediaAssets.length,
+      },
+      {
+        step: "schedule",
+        title: lang === "en" ? "Schedule / Publish" : "Jadwal / Publish",
+        desc:
+          lang === "en"
+            ? "Prepare queue and publish simulation."
+            : "Siapkan queue dan simulasi publish.",
+        badge: queue.length,
+      },
+      {
+        step: "analytics",
+        title: lang === "en" ? "Analytics" : "Analitik",
+        desc:
+          lang === "en"
+            ? "View post performance simulation."
+            : "Lihat simulasi performa posting.",
+        badge: stats.length,
+      },
+    ];
+
+    return (
+      <aside className="workspace-sidebar glass">
+        <div className="workspace-user">
+          <span>{lang === "en" ? "Logged in as" : "Login sebagai"}</span>
+          <strong>{user?.name}</strong>
+          <small>{user?.email}</small>
+        </div>
+
+        <div className="workflow-menu">
+          {items.map((item, index) => {
+            const disabled = stepDisabled(item.step);
+            const active = step === item.step;
+
+            return (
+              <button
+                key={item.step}
+                className={`workflow-item ${active ? "active" : ""} ${disabled ? "locked" : ""}`}
+                onClick={() => openWorkspaceStep(item.step)}
+                disabled={disabled}
+              >
+                <span className="workflow-number">
+                  {disabled ? "ÃƒÆ’Ã‚Â©ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â" : String(index + 1).padStart(2, "0")}
+                </span>
+
+                <span className="workflow-text">
+                  <strong>{item.title}</strong>
+                  <small>{item.desc}</small>
+                </span>
+
+                {!!item.badge && <b>{item.badge}</b>}
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+    );
+  }
+
+  function renderWorkspaceSection() {
+    if (!user || landingMode !== "workspace") return null;
+
+    return (
+      <section className="workspace-section" id="workspace">
+        <div className="workspace-shell">
+          {renderWorkspaceMenu()}
+
+          <section className="workspace-content">
+            {step === "import" && renderImportStep()}
+            {step === "split" && renderSplitStep()}
+            {step === "review" && renderReviewStep()}
+            {step === "media" && renderMediaStep()}
+            {step === "schedule" && renderScheduleStep()}
+            {step === "analytics" && renderAnalyticsStep()}
+          </section>
+        </div>
+      </section>
+    );
+  }
+  function renderFooter() {
+    return (
+      <footer className="site-footer">
+        <div className="site-footer-inner glass">
+          <div className="footer-col">
+            <strong>Auto POST</strong>
+            <p>
+              {lang === "en"
+                ? "A compact content workflow for turning long-form material into social-ready posts."
+                : "Workflow ringkas untuk mengubah konten panjang menjadi posting siap media sosial."}
+            </p>
+          </div>
+
+          <div className="footer-col">
+            <span>{lang === "en" ? "Workflow" : "Alur Kerja"}</span>
+            <ul>
+              <li>{lang === "en" ? "Import Content" : "Impor Konten"}</li>
+              <li>{lang === "en" ? "Split & Review" : "Pecah & Review"}</li>
+              <li>{lang === "en" ? "Media & Schedule" : "Media & Jadwal"}</li>
+            </ul>
+          </div>
+
+          <div className="footer-col">
+            <span>{lang === "en" ? "Status" : "Status"}</span>
+            <ul>
+              <li>{lang === "en" ? "Frontend Prototype" : "Prototipe Frontend"}</li>
+              <li>{lang === "en" ? "Responsive Layout" : "Layout Responsif"}</li>
+              <li>{lang === "en" ? "Backend Endpoint Ready Soon" : "Endpoint Backend Segera Disambungkan"}</li>
+            </ul>
+          </div>
+        </div>
+      </footer>
+    );
+  }
+  function renderHeader() {
+    return (
+      <header className="topbar">
+        <div className="topbar-inner">
+          <div className="brand">
+            <img src="/logo-autopost.svg" alt="Auto POST" className="brand-logo" />
+            <div>
+              <strong>{t.brand}</strong>
+              <span>{t.subtitle}</span>
+            </div>
+          </div>
+
+          <div className="topbar-right">
+            <div className="lang-switcher">
+              <button
+                className={lang === "en" ? "active" : ""}
+                onClick={() => switchLanguage("en")}
+              >
+                {t.langEnglish}
+              </button>
+              <button
+                className={lang === "id" ? "active" : ""}
+                onClick={() => switchLanguage("id")}
+              >
+                {t.langIndonesian}
+              </button>
+            </div>
+
+            <nav className="tabs workflow-steps">
+              <TabButton active={step === "import"} onClick={() => setStep("import")}>
+                {t.import}
+              </TabButton>
+
+              <TabButton
+                active={step === "split"}
+                badge={hasImportedContent ? 1 : 0}
+                disabled={stepDisabled("split")}
+                onClick={() => setStep("split")}
+              >
+                {t.split}
+              </TabButton>
+
+              <TabButton
+                active={step === "review"}
+                badge={chunks.length}
+                disabled={stepDisabled("review")}
+                onClick={() => setStep("review")}
+              >
+                {t.review}
+              </TabButton>
+
+              <TabButton
+                active={step === "media"}
+                badge={mediaAssets.length}
+                disabled={stepDisabled("media")}
+                onClick={() => setStep("media")}
+              >
+                {lang === "en" ? "Media Studio" : "Studio Media"}
+              </TabButton>
+
+              <TabButton
+                active={step === "schedule"}
+                badge={approvedDrafts.length}
+                disabled={stepDisabled("schedule")}
+                onClick={() => continueToSchedule()}
+              >
+                {t.schedule}
+              </TabButton>
+
+              <TabButton
+                active={step === "analytics"}
+                badge={stats.length}
+                disabled={stepDisabled("analytics")}
+                onClick={() => setStep("analytics")}
+              >
+                {t.analytics}
+              </TabButton>
+            </nav>
+          </div>
+        </div>
+      </header>
+    );
+  }
+
+  function renderImportStep() {
+    return (
+      <div className="page-grid">
+        <section className="intro-card glass">
+          <p className="eyebrow">{t.importEyebrow}</p>
+          <h1>{t.importHeadline}</h1>
+          <p>{t.importDesc}</p>
+
+          <div className="hero-actions">
+            <Button onClick={handleUseDemo}>{t.useDemo}</Button>
+            <Button variant="secondary" onClick={() => fileRef.current?.click()}>
+              {t.uploadImage.replace("Image", "File").replace("Gambar", "File")}
+            </Button>
+          </div>
+        </section>
+
+        <section className="panel glass">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">{t.importEyebrow}</p>
+              <h2>{t.importTitle}</h2>
+            </div>
+
+            <div className="switcher">
+              <button
+                className={sourceType === "file" ? "active" : ""}
+                onClick={() => setSourceType("file")}
+              >
+                {t.sourceFile}
+              </button>
+              <button
+                className={sourceType === "url" ? "active" : ""}
+                onClick={() => setSourceType("url")}
+              >
+                {t.sourceUrl}
+              </button>
+              <button
+                className={sourceType === "paste" ? "active" : ""}
+                onClick={() => setSourceType("paste")}
+              >
+                {t.sourcePaste}
+              </button>
+            </div>
+          </div>
+
+          {sourceType === "file" && (
+            <div className="upload-box" onClick={() => fileRef.current?.click()}>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".txt,.pdf,.doc,.docx"
+                onChange={handleFileUpload}
+                hidden
+              />
+
+              <div className="upload-icon" aria-hidden="true">
+                <svg className="upload-svg" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 16V4" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+                  <path d="M7 9l5-5 5 5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+                </svg>
+              </div>
+
+              <strong>{t.uploadClick}</strong>
+              <span>{t.uploadHelp}</span>
+
+              {importedContent?.sourceType === "file" && (
+                <em>
+                  {t.activeFile} {importedContent.sourceName}
+                </em>
+              )}
+            </div>
+          )}
+
+          {sourceType === "url" && (
+            <div className="form-group">
+              <label>{t.urlLabel}</label>
+              <input
+                value={url}
+                onChange={(event) => setUrl(event.target.value)}
+                placeholder={t.urlPlaceholder}
+              />
+
+              <Button onClick={handleUrlImport} disabled={!url.trim()}>
+                {lang === "en" ? "Import URL" : "Impor URL"}
+              </Button>
+            </div>
+          )}
+
+          {sourceType === "paste" && (
+            <div className="form-group">
+              <label>{t.pasteLabel}</label>
+              <textarea
+                value={pasteText}
+                onChange={(event) => setPasteText(event.target.value)}
+                placeholder={t.pastePlaceholder}
+              />
+
+              <Button onClick={handlePasteImport} disabled={!pasteText.trim()}>
+                {lang === "en" ? "Import Pasted Text" : "Impor Teks"}
+              </Button>
+            </div>
+          )}
+        </section>
+
+        <section className="panel glass full">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">{t.sourcePreview}</p>
+              <h2>{importedContent?.sourceName || t.noText}</h2>
+            </div>
+
+            <Button onClick={proceedToSplit} disabled={!hasImportedContent}>
+              {t.proceedToSplit}
+            </Button>
+          </div>
+
+          <pre className="preview-box">{rawText || t.noText}</pre>
+        </section>
+      </div>
+    );
+  }
+
+  function renderSplitStep() {
+    return (
+      <div className="page-grid">
+        <section className="intro-card glass">
+          <p className="eyebrow">{t.splitEyebrow}</p>
+          <h1>{t.splitHeadline}</h1>
+          <p>{t.splitDesc}</p>
+
+          <div className="hero-actions">
+            <Button variant="secondary" onClick={() => setStep("import")}>
+              {t.backToImport}
+            </Button>
+            <Button onClick={generateChunksAndContinue} disabled={!hasImportedContent}>
+              {t.generateChunks}
+            </Button>
+          </div>
+        </section>
+
+        <section className="panel glass">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">{t.splitMethod}</p>
+              <h2>{t.splitTitle}</h2>
+            </div>
+          </div>
+
+          <div className="mode-row split-mode-row">
+            <button
+              className={splitMethod === "characters" ? "active" : ""}
+              onClick={() => setSplitMethod("characters")}
+            >
+              {t.byCharacters}
+            </button>
+            <button
+              className={splitMethod === "paragraphs" ? "active" : ""}
+              onClick={() => setSplitMethod("paragraphs")}
+            >
+              {t.byParagraphs}
+            </button>
+            <button
+              className={splitMethod === "markers" ? "active" : ""}
+              onClick={() => setSplitMethod("markers")}
+            >
+              {t.byMarkers}
+            </button>
+          </div>
+
+          {(splitMethod === "characters" || splitMethod === "paragraphs") && (
+            <div className="form-group">
+              <label>{t.maxChars}</label>
+              <input
+                type="number"
+                min="100"
+                max="5000"
+                value={maxChars}
+                onChange={(event) => setMaxChars(Number(event.target.value))}
+              />
+            </div>
+          )}
+
+          {splitMethod === "markers" && (
+            <div className="two-cols">
+              <div className="form-group">
+                <label>{t.startCode}</label>
+                <input
+                  value={startCode}
+                  onChange={(event) => setStartCode(event.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label>{t.endCode}</label>
+                <input
+                  value={endCode}
+                  onChange={(event) => setEndCode(event.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="mini-summary">
+            <span>{t.estimatedChunks}</span>
+            <strong>{estimatedChunks}</strong>
+          </div>
+        </section>
+
+        <section className="panel glass full">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">{t.sourcePreview}</p>
+              <h2>{importedContent?.sourceName}</h2>
+            </div>
+
+            <Button onClick={generateChunksAndContinue} disabled={!hasImportedContent}>
+              {t.generateChunks}
+            </Button>
+          </div>
+
+          <pre className="preview-box">{rawText}</pre>
+        </section>
+      </div>
+    );
+  }
+
+  function renderReviewStep() {
+    if (!hasChunks) {
+      return (
+        <div className="empty-card glass">
+          <strong>{t.noChunksTitle}</strong>
+          <span>{t.noChunksDesc}</span>
+          <Button onClick={() => setStep("split")}>{t.split}</Button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="stack">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">{t.reviewEyebrow}</p>
+            <h1>{t.reviewHeadline}</h1>
+            <p className="section-desc">{t.reviewDesc}</p>
+          </div>
+
+          <Button onClick={() => setStep("media")} disabled={!hasApprovedDrafts}>
+            {lang === "en" ? "Continue to Media Studio" : "Lanjut ke Studio Media"}
+          </Button>
+        </div>
+
+        {drafts.map((draft, index) => (
+          <article className="editor-card glass" key={draft.id}>
+            <div className="editor-head">
+              <div>
+                <strong>
+                  {t.chunk} #{index + 1}
+                </strong>
+                <span>
+                  {draft.caption.length} {t.characters}
+                </span>
+              </div>
+
+              <b className={draft.status === "approved" ? "success-badge" : "draft-badge"}>
+                {draft.status === "approved" ? t.approved : t.draft}
+              </b>
+            </div>
+
+            <textarea
+              value={draft.caption}
+              maxLength={5000}
+              onChange={(event) => updateDraftCaption(draft.id, event.target.value)}
+            />
+
+            <div className="editor-meta">
+              <span>
+                {draft.caption.length}/5000 {t.characters}
+              </span>
+              <button onClick={() => generateVisualPrompt(draft.id)}>
+                {t.generateImagePrompt}
+              </button>
+            </div>
+
+            {draft.visualPrompt && (
+              <div className="ai-box">
+                <strong>{t.visualPrompt}</strong>
+                <p>{draft.visualPrompt}</p>
+              </div>
+            )}
+
+            <div className="platform-row">
+              {PLATFORMS.map((platform) => {
+                const selected = draft.platforms.includes(platform.id);
+
+                return (
+                  <button
+                    key={platform.id}
+                    className={selected ? "selected" : ""}
+                    style={{ "--platform-color": platform.color } as CSSProperties}
+                    onClick={() => togglePlatform(draft.id, platform.id)}
+                  >
+                    <i>{platform.icon}</i>
+                    {platform.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="post-tools">
+              <button
+                className="image-button"
+                onClick={() => imageRefs.current[draft.id]?.click()}
+              >
+                {t.uploadImage}
+              </button>
+
+              <input
+                ref={(element) => {
+                  imageRefs.current[draft.id] = element;
+                }}
+                type="file"
+                accept="image/jpeg,image/jpg,image/png,image/webp"
+                hidden
+                onChange={(event) => handleImageUpload(draft.id, event)}
+              />
+
+              {draft.image && (
+                <div className="image-chip">
+                  <img src={draft.image.url} alt="" />
+                  <span>{draft.image.name}</span>
+                </div>
+              )}
+
+              <Button onClick={() => approveDraft(draft.id)}>
+                {draft.status === "approved" ? t.approved : t.approve}
+              </Button>
+            </div>
+          </article>
+        ))}
+      </div>
+    );
+  }
+
+  function renderMediaStep() {
+    if (!hasApprovedDrafts) {
+      return (
+        <div className="empty-card glass">
+          <strong>{lang === "en" ? "No approved drafts yet." : "Belum ada draft approved."}</strong>
+          <span>
+            {lang === "en"
+              ? "Approve at least one draft in Review before creating or importing media."
+              : "Approve minimal satu draft di Review sebelum membuat atau mengimpor media."}
+          </span>
+          <Button onClick={() => setStep("review")}>{t.review}</Button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="stack">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">{lang === "en" ? "Step 04" : "Langkah 04"}</p>
+            <h1>{lang === "en" ? "Create or import media for each post." : "Buat atau impor media untuk setiap posting."}</h1>
+            <p className="section-desc">
+              {lang === "en"
+                ? "Prepare photos or videos for approved drafts. The backend payload is ready; current media creation is a placeholder until your endpoint is connected."
+                : "Siapkan foto atau video untuk draft yang sudah approved. Payload backend sudah disiapkan; saat ini create media masih placeholder sampai endpoint Anda dihubungkan."}
+            </p>
+          </div>
+
+          <Button onClick={continueToSchedule}>
+            {lang === "en" ? "Continue to Schedule" : "Lanjut ke Jadwal"}
+          </Button>
+        </div>
+
+        <div className="media-grid">
+          {approvedDrafts.map((draft, index) => {
+            const postCode = getDraftPostCode(draft.id);
+            const mediaList = mediaAssets.filter((asset) => asset.postId === draft.id);
+            const imageBusy = mediaBusy[`${draft.id}_image_ai`];
+            const videoBusy = mediaBusy[`${draft.id}_video_ai`];
+
+            return (
+              <article className="media-card glass" key={draft.id}>
+                <div className="media-card-head">
+                  <div>
+                    <p className="eyebrow">{postCode}</p>
+                    <h2>
+                      {lang === "en" ? "Post" : "Posting"} #{index + 1}
+                    </h2>
+                  </div>
+
+                  <span className="media-count">
+                    {mediaList.length} {lang === "en" ? "media" : "media"}
+                  </span>
+                </div>
+
+                <p className="media-caption">{draft.caption}</p>
+
+                <div className="media-actions">
+                  <Button
+                    onClick={() => createMediaByPlaceholder(draft.id, "image")}
+                    disabled={!!imageBusy}
+                  >
+                    {imageBusy
+                      ? lang === "en"
+                        ? "Creating..."
+                        : "Membuat..."
+                      : lang === "en"
+                        ? "Create Photo"
+                        : "Buat Foto"}
+                  </Button>
+
+                  <Button
+                    onClick={() => createMediaByPlaceholder(draft.id, "video")}
+                    disabled={!!videoBusy}
+                  >
+                    {videoBusy
+                      ? lang === "en"
+                        ? "Creating..."
+                        : "Membuat..."
+                      : lang === "en"
+                        ? "Create Video"
+                        : "Buat Video"}
+                  </Button>
+
+                  <Button
+                    variant="secondary"
+                    onClick={() => mediaRefs.current[`${draft.id}_image`]?.click()}
+                  >
+                    {lang === "en" ? "Import Photo" : "Impor Foto"}
+                  </Button>
+
+                  <Button
+                    variant="secondary"
+                    onClick={() => mediaRefs.current[`${draft.id}_video`]?.click()}
+                  >
+                    {lang === "en" ? "Import Video" : "Impor Video"}
+                  </Button>
+
+                  <input
+                    ref={(element) => {
+                      mediaRefs.current[`${draft.id}_image`] = element;
+                    }}
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={(event) => importMediaForDraft(draft.id, "image", event)}
+                  />
+
+                  <input
+                    ref={(element) => {
+                      mediaRefs.current[`${draft.id}_video`] = element;
+                    }}
+                    type="file"
+                    accept="video/*"
+                    hidden
+                    onChange={(event) => importMediaForDraft(draft.id, "video", event)}
+                  />
+                </div>
+
+                <div className="media-list">
+                  {mediaList.length === 0 && (
+                    <div className="media-empty">
+                      {lang === "en"
+                        ? "No media yet. Create or import photo/video for this post."
+                        : "Belum ada media. Buat atau impor foto/video untuk posting ini."}
+                    </div>
+                  )}
+
+                  {mediaList.map((asset) => (
+                    <div className="media-asset" key={asset.id}>
+                      <div className="media-thumb">
+                        {asset.type === "image" ? (
+                          <img src={asset.url} alt={asset.storedName} />
+                        ) : asset.url ? (
+                          <video src={asset.url} muted controls />
+                        ) : (
+                          <div className="media-video-placeholder">
+                            <span>VIDEO</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="media-info">
+                        <strong>{asset.storedName}</strong>
+                        <span>
+                          {asset.source.toUpperCase()} ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· {asset.type.toUpperCase()} ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· v{asset.version}
+                        </span>
+                        <small>
+                          {lang === "en" ? "Original" : "Asli"}: {asset.originalName}
+                        </small>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+  function renderScheduleStep() {
+    if (!hasApprovedDrafts && queue.length === 0) {
+      return (
+        <div className="empty-card glass">
+          <strong>{t.noApprovedTitle}</strong>
+          <span>{t.noApprovedDesc}</span>
+          <Button onClick={() => setStep("review")}>{t.review}</Button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="stack">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">{t.scheduleEyebrow}</p>
+            <h1>{t.scheduleHeadline}</h1>
+            <p className="section-desc">{t.scheduleDesc}</p>
+          </div>
+
+          <Button onClick={() => setStep("analytics")}>{t.goToAnalytics}</Button>
+        </div>
+
+        {queue.map((item, index) => (
+          <article className="editor-card glass" key={item.id}>
+            <div className="editor-head">
+              <div>
+                <strong>
+                  Queue #{index + 1}
+                </strong>
+                <span>
+                  {item.platforms.map((platform) => getPlatform(platform)?.label).join(", ")}
+                </span>
+              </div>
+
+              <b className={item.status === "published" ? "success-badge" : "draft-badge"}>
+                {item.status === "published"
+                  ? t.published
+                  : item.status === "scheduled"
+                    ? t.scheduled
+                    : item.status === "publishing"
+                      ? t.publishing
+                      : "Ready"}
+              </b>
+            </div>
+
+            <textarea value={item.caption} readOnly />
+
+            <div className="post-tools">
+              {item.image && (
+                <div className="image-chip">
+                  <img src={item.image.url} alt="" />
+                  <span>{item.image.name}</span>
+                </div>
+              )}
+
+              <input
+                className="schedule-input"
+                type="datetime-local"
+                value={item.scheduledAt || ""}
+                onChange={(event) => updateSchedule(item.id, event.target.value)}
+              />
+
+              <Button
+                onClick={() => publishQueueItem(item.id)}
+                disabled={item.status === "publishing" || item.status === "published"}
+              >
+                {item.status === "publishing" ? t.publishing : t.publishNow}
+              </Button>
+            </div>
+          </article>
+        ))}
+      </div>
+    );
+  }
+
+  function renderAnalyticsStep() {
+    const avgReach = Math.floor(totalReach / (stats.length || 1));
+
+    return (
+      <div className="stack">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">{t.analyticsEyebrow}</p>
+            <h1>{t.analyticsHeadline}</h1>
+          </div>
+        </div>
+
+        <div className="stats-grid">
+          <StatCard title={t.totalPosts} value={stats.length} caption="published items" />
+          <StatCard title={t.totalReach} value={formatNumber(totalReach)} caption="simulated reach" />
+          <StatCard title={t.activePlatforms} value={activePlatforms} caption="used channels" />
+          <StatCard title={t.averageReach} value={formatNumber(avgReach)} caption="average per post" />
+        </div>
+
+        <section className="panel glass">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Breakdown</p>
+              <h2>{t.reachByPlatform}</h2>
+            </div>
+          </div>
+
+          <div className="bar-list">
+            {PLATFORMS.map((platform) => {
+              const platformStats = stats.filter((item) => item.platform === platform.id);
+              const reach = platformStats.reduce((total, item) => total + item.reach, 0);
+
+              const max = Math.max(
+                ...PLATFORMS.map((item) =>
+                  stats
+                    .filter((stat) => stat.platform === item.id)
+                    .reduce((total, stat) => total + stat.reach, 0)
+                ),
+                1
+              );
+
+              const width = `${(reach / max) * 100}%`;
+
+              return (
+                <div className="bar-item" key={platform.id}>
+                  <span>{platform.label}</span>
+                  <div>
+                    <i style={{ width, background: platform.color }} />
+                  </div>
+                  <strong style={{ color: platform.color }}>{formatNumber(reach)}</strong>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="panel glass">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">History</p>
+              <h2>{t.recentPosts}</h2>
+            </div>
+          </div>
+
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>{t.platform}</th>
+                  <th>{t.content}</th>
+                  <th>{t.image}</th>
+                  <th>{t.date}</th>
+                  <th>{t.reach}</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {stats.map((item) => {
+                  const platform = getPlatform(item.platform);
+
+                  return (
+                    <tr key={item.id}>
+                      <td>
+                        <span
+                          className="platform-pill"
+                          style={
+                            {
+                              "--platform-color": platform?.color || "#94A3B8",
+                            } as CSSProperties
+                          }
+                        >
+                          {platform?.icon} {platform?.label}
+                        </span>
+                      </td>
+                      <td>{item.text}</td>
+                      <td>{item.image || "-"}</td>
+                      <td>{item.date}</td>
+                      <td>
+                        <strong>{formatNumber(item.reach)}</strong>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <main className="app-shell">
+      <section className="hero-bg" />
+
+      {renderLandingHeader()}
+      {renderLandingHero()}
+      {renderLoginPanel()}
+      {renderWorkspaceSection()}
+      {renderFooter()}
+    </main>
+  );
+}

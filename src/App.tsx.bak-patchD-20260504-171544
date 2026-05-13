@@ -1,0 +1,1499 @@
+import {
+  ChangeEvent,
+  CSSProperties,
+  ReactNode,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import "./App.css";
+
+type PlatformId =
+  | "instagram"
+  | "twitter"
+  | "facebook"
+  | "linkedin"
+  | "tiktok"
+  | "youtube";
+
+type Platform = {
+  id: PlatformId;
+  label: string;
+  color: string;
+  icon: string;
+};
+
+type ImportedContent = {
+  id: string;
+  sourceType: SourceType;
+  sourceName: string;
+  rawText: string;
+  charCount: number;
+  importedAt: string;
+};
+
+type ContentChunk = {
+  id: string;
+  index: number;
+  text: string;
+  charCount: number;
+};
+
+type UploadedImage = {
+  name: string;
+  url: string;
+};
+
+type DraftPost = {
+  id: string;
+  chunkId: string;
+  caption: string;
+  platforms: PlatformId[];
+  image?: UploadedImage;
+  visualPrompt?: string;
+  status: "draft" | "reviewed" | "approved";
+};
+
+type QueueItem = {
+  id: string;
+  draftId: string;
+  caption: string;
+  platforms: PlatformId[];
+  image?: UploadedImage;
+  scheduledAt?: string;
+  publishMode: "now" | "scheduled";
+  status: "ready" | "scheduled" | "publishing" | "published" | "failed";
+  reach?: number;
+};
+
+type PostStat = {
+  id: number;
+  platform: PlatformId;
+  text: string;
+  date: string;
+  reach: number;
+  image: string | null;
+};
+
+type SourceType = "file" | "url" | "paste";
+type SplitMethod = "characters" | "paragraphs" | "markers";
+type StepName = "import" | "split" | "review" | "schedule" | "analytics";
+type Language = "en" | "id";
+
+const PLATFORMS: Platform[] = [
+  { id: "instagram", label: "Instagram", color: "#E1306C", icon: "◉" },
+  { id: "twitter", label: "X / Twitter", color: "#1DA1F2", icon: "𝕏" },
+  { id: "facebook", label: "Facebook", color: "#1877F2", icon: "f" },
+  { id: "linkedin", label: "LinkedIn", color: "#0A66C2", icon: "in" },
+  { id: "tiktok", label: "TikTok", color: "#9B4DFF", icon: "♪" },
+  { id: "youtube", label: "YouTube", color: "#FF0000", icon: "▶" },
+];
+
+const DEMO_TEXT_EN = `Chapter 1: Digital Marketing Strategy in the Modern Era
+
+In a fast-moving digital era, brands can no longer rely on simply being present on social media. They need consistent, relevant content systems that adapt to audience behavior.
+
+Chapter 2: Content Repurposing
+
+One long document can be transformed into many short pieces of content for Instagram, LinkedIn, TikTok, YouTube Shorts, Facebook, and X. This strategy makes production more efficient.
+
+Chapter 3: Posting Automation
+
+With a good dashboard, users can split content, edit captions, add images, choose platforms, set schedules, and monitor performance statistics.
+
+Chapter 4: Visual Ideas
+
+A system can help generate image prompts based on the content, so every post has visuals that are more attractive, consistent, and contextually relevant.
+
+Chapter 5: Analytics
+
+Reach, engagement, number of posts, and platform performance should be monitored to understand which strategies are most effective.`;
+
+const DEMO_TEXT_ID = `Bab 1: Strategi Digital Marketing di Era Modern
+
+Di era digital yang bergerak sangat cepat, brand tidak lagi cukup hanya hadir di media sosial. Mereka perlu membangun sistem konten yang konsisten, relevan, dan mampu beradaptasi dengan perilaku audiens.
+
+Bab 2: Content Repurposing
+
+Satu dokumen panjang dapat diubah menjadi banyak konten pendek untuk Instagram, LinkedIn, TikTok, YouTube Shorts, Facebook, dan X. Strategi ini membuat produksi konten lebih efisien.
+
+Bab 3: Automasi Posting
+
+Dengan dashboard yang baik, pengguna dapat memotong konten, mengedit caption, menambahkan gambar, memilih platform, mengatur jadwal, dan memantau statistik performa.
+
+Bab 4: Ide Visual
+
+Sistem dapat membantu membuat prompt gambar berdasarkan isi konten, sehingga setiap posting memiliki visual yang lebih menarik, konsisten, dan sesuai konteks.
+
+Bab 5: Analitik
+
+Reach, engagement, jumlah posting, dan performa per platform perlu dipantau untuk mengetahui strategi mana yang paling efektif.`;
+
+const TEXT = {
+  en: {
+    brand: "Auto POST",
+    subtitle: "Content splitter & social scheduler",
+    langEnglish: "English",
+    langIndonesian: "Indonesia",
+
+    import: "Import",
+    split: "Split",
+    review: "Review",
+    schedule: "Schedule",
+    analytics: "Analytics",
+
+    importEyebrow: "Step 01",
+    importTitle: "Import Content",
+    importHeadline: "Start by importing your source content.",
+    importDesc:
+      "Upload a file, paste text, use a URL, or start from demo content. After successful import, continue to Split.",
+    sourceFile: "File",
+    sourceUrl: "URL",
+    sourcePaste: "Paste",
+    useDemo: "Use Demo",
+    uploadClick: "Click to upload a file",
+    uploadHelp: "TXT can be read directly. PDF/DOCX uses local demo preview for now.",
+    activeFile: "Active file:",
+    urlLabel: "Article / Web Page URL",
+    urlPlaceholder: "https://example.com/article",
+    pasteLabel: "Paste your content",
+    pastePlaceholder: "Paste article, script, transcript, or long-form content here...",
+    sourcePreview: "Source Preview",
+    noText: "No content imported yet.",
+    proceedToSplit: "Proceed to Split",
+
+    splitEyebrow: "Step 02",
+    splitTitle: "Split Content",
+    splitHeadline: "Choose how your content should be split.",
+    splitDesc:
+      "Set the split method, preview the source, then generate chunks for review.",
+    splitMethod: "Split Method",
+    byCharacters: "By Characters",
+    byParagraphs: "By Paragraphs",
+    byMarkers: "Start - End Codes",
+    maxChars: "Maximum characters per chunk",
+    startCode: "Start code",
+    endCode: "End code",
+    estimatedChunks: "Estimated chunks",
+    generateChunks: "Generate Chunks & Continue",
+    backToImport: "Back to Import",
+
+    reviewEyebrow: "Step 03",
+    reviewTitle: "Review & Edit",
+    reviewHeadline: "Edit captions and approve drafts.",
+    reviewDesc:
+      "Review each chunk, choose platforms, add an image, generate a visual prompt, then approve drafts for scheduling.",
+    chunk: "Chunk",
+    characters: "characters",
+    generateImagePrompt: "Generate Image Prompt",
+    visualPrompt: "Visual Prompt",
+    uploadImage: "Upload Image",
+    approve: "Approve",
+    approved: "Approved",
+    draft: "Draft",
+    continueToSchedule: "Continue to Schedule",
+    noChunksTitle: "No chunks yet.",
+    noChunksDesc: "Go back to Split and generate content chunks first.",
+
+    scheduleEyebrow: "Step 04",
+    scheduleTitle: "Schedule / Publish",
+    scheduleHeadline: "Prepare your publishing queue.",
+    scheduleDesc:
+      "Approved drafts appear here. You can publish now or set a schedule time.",
+    noApprovedTitle: "No approved drafts yet.",
+    noApprovedDesc: "Approve at least one draft in Review before scheduling.",
+    publishNow: "Publish Now",
+    schedulePost: "Schedule",
+    scheduled: "Scheduled",
+    published: "Published",
+    publishing: "Publishing...",
+    goToAnalytics: "Go to Analytics",
+
+    analyticsEyebrow: "Step 05",
+    analyticsTitle: "Analytics",
+    analyticsHeadline: "Content performance statistics.",
+    totalPosts: "Total Posts",
+    totalReach: "Total Reach",
+    activePlatforms: "Active Platforms",
+    averageReach: "Average Reach",
+    reachByPlatform: "Reach by Platform",
+    recentPosts: "Recent Posts",
+    platform: "Platform",
+    content: "Content",
+    image: "Image",
+    date: "Date",
+    reach: "Reach",
+
+    importFirstAlert: "Please import content first.",
+    splitFirstAlert: "Please generate chunks first.",
+    approveFirstAlert: "Please approve at least one draft first.",
+    platformAlert: "Please choose at least one platform first.",
+  },
+
+  id: {
+    brand: "Auto POST",
+    subtitle: "Pemotong konten & penjadwal posting",
+    langEnglish: "English",
+    langIndonesian: "Indonesia",
+
+    import: "Impor",
+    split: "Pecah",
+    review: "Review",
+    schedule: "Jadwal",
+    analytics: "Analitik",
+
+    importEyebrow: "Langkah 01",
+    importTitle: "Impor Konten",
+    importHeadline: "Mulai dengan memasukkan sumber konten.",
+    importDesc:
+      "Upload file, paste teks, gunakan URL, atau mulai dari konten demo. Setelah berhasil impor, lanjut ke tahap Pecah Konten.",
+    sourceFile: "File",
+    sourceUrl: "URL",
+    sourcePaste: "Paste",
+    useDemo: "Gunakan Demo",
+    uploadClick: "Klik untuk upload file",
+    uploadHelp: "TXT bisa dibaca langsung. PDF/DOCX sementara memakai preview demo lokal.",
+    activeFile: "File aktif:",
+    urlLabel: "URL Artikel / Halaman Web",
+    urlPlaceholder: "https://contoh.com/artikel",
+    pasteLabel: "Paste konten Anda",
+    pastePlaceholder: "Paste artikel, skrip, transkrip, atau konten panjang di sini...",
+    sourcePreview: "Preview Sumber",
+    noText: "Belum ada konten yang diimpor.",
+    proceedToSplit: "Lanjut ke Pecah Konten",
+
+    splitEyebrow: "Langkah 02",
+    splitTitle: "Pecah Konten",
+    splitHeadline: "Pilih cara konten akan dipecah.",
+    splitDesc:
+      "Atur metode pemecahan, cek preview sumber, lalu buat potongan konten untuk direview.",
+    splitMethod: "Metode Pecah",
+    byCharacters: "Per Karakter",
+    byParagraphs: "Per Paragraf",
+    byMarkers: "Kode Awal - Akhir",
+    maxChars: "Maksimal karakter per potongan",
+    startCode: "Kode awal",
+    endCode: "Kode akhir",
+    estimatedChunks: "Estimasi potongan",
+    generateChunks: "Buat Potongan & Lanjut",
+    backToImport: "Kembali ke Impor",
+
+    reviewEyebrow: "Langkah 03",
+    reviewTitle: "Review & Edit",
+    reviewHeadline: "Edit caption dan approve draft.",
+    reviewDesc:
+      "Review setiap potongan, pilih platform, tambahkan gambar, buat prompt visual, lalu approve draft untuk dijadwalkan.",
+    chunk: "Potongan",
+    characters: "karakter",
+    generateImagePrompt: "Buat Prompt Gambar",
+    visualPrompt: "Prompt Visual",
+    uploadImage: "Upload Gambar",
+    approve: "Approve",
+    approved: "Approved",
+    draft: "Draft",
+    continueToSchedule: "Lanjut ke Jadwal",
+    noChunksTitle: "Belum ada potongan.",
+    noChunksDesc: "Kembali ke Pecah Konten dan buat potongan terlebih dahulu.",
+
+    scheduleEyebrow: "Langkah 04",
+    scheduleTitle: "Jadwal / Publish",
+    scheduleHeadline: "Siapkan antrean posting.",
+    scheduleDesc:
+      "Draft yang sudah approved akan muncul di sini. Anda bisa publish sekarang atau mengatur jadwal.",
+    noApprovedTitle: "Belum ada draft approved.",
+    noApprovedDesc: "Approve minimal satu draft di Review sebelum menjadwalkan.",
+    publishNow: "Publish Sekarang",
+    schedulePost: "Jadwalkan",
+    scheduled: "Terjadwal",
+    published: "Terpublish",
+    publishing: "Mengirim...",
+    goToAnalytics: "Lihat Analitik",
+
+    analyticsEyebrow: "Langkah 05",
+    analyticsTitle: "Analitik",
+    analyticsHeadline: "Statistik performa konten.",
+    totalPosts: "Total Post",
+    totalReach: "Total Reach",
+    activePlatforms: "Platform Aktif",
+    averageReach: "Rata-rata Reach",
+    reachByPlatform: "Reach per Platform",
+    recentPosts: "Posting Terakhir",
+    platform: "Platform",
+    content: "Konten",
+    image: "Gambar",
+    date: "Tanggal",
+    reach: "Reach",
+
+    importFirstAlert: "Silakan impor konten terlebih dahulu.",
+    splitFirstAlert: "Silakan buat potongan konten terlebih dahulu.",
+    approveFirstAlert: "Silakan approve minimal satu draft terlebih dahulu.",
+    platformAlert: "Pilih minimal satu platform terlebih dahulu.",
+  },
+};
+
+function makeId(prefix: string) {
+  return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function extractByChars(text: string, maxChars: number): string[] {
+  if (!text || maxChars <= 0) return [];
+
+  const chunks: string[] = [];
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    let end = cursor + maxChars;
+
+    if (end < text.length) {
+      const nearestBreak = Math.max(
+        text.lastIndexOf("\n\n", end),
+        text.lastIndexOf(". ", end),
+        text.lastIndexOf(" ", end)
+      );
+
+      if (nearestBreak > cursor) end = nearestBreak + 1;
+    }
+
+    const piece = text.slice(cursor, end).trim();
+    if (piece) chunks.push(piece);
+
+    cursor = end + 1;
+  }
+
+  return chunks;
+}
+
+function extractByParagraphs(text: string, maxChars: number): string[] {
+  const paragraphs = text
+    .split(/\n\s*\n/g)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  const chunks: string[] = [];
+  let buffer = "";
+
+  for (const paragraph of paragraphs) {
+    const next = buffer ? `${buffer}\n\n${paragraph}` : paragraph;
+
+    if (next.length > maxChars && buffer) {
+      chunks.push(buffer.trim());
+      buffer = paragraph;
+    } else {
+      buffer = next;
+    }
+  }
+
+  if (buffer.trim()) chunks.push(buffer.trim());
+
+  return chunks;
+}
+
+function extractByMarkers(text: string, startCode: string, endCode: string): string[] {
+  if (!text || !startCode || !endCode) return [];
+
+  const chunks: string[] = [];
+  let searchFrom = 0;
+
+  while (true) {
+    const start = text.indexOf(startCode, searchFrom);
+    if (start === -1) break;
+
+    const end = text.indexOf(endCode, start + startCode.length);
+    if (end === -1) break;
+
+    const piece = text.slice(start + startCode.length, end).trim();
+    if (piece) chunks.push(piece);
+
+    searchFrom = end + endCode.length;
+  }
+
+  return chunks;
+}
+
+function formatNumber(value: number): string {
+  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
+  return String(value);
+}
+
+function getPlatform(id: PlatformId): Platform | undefined {
+  return PLATFORMS.find((item) => item.id === id);
+}
+
+type ButtonProps = {
+  children: ReactNode;
+  onClick?: () => void;
+  variant?: "primary" | "secondary";
+  disabled?: boolean;
+  type?: "button" | "submit";
+};
+
+function Button({
+  children,
+  onClick,
+  variant = "primary",
+  disabled = false,
+  type = "button",
+}: ButtonProps) {
+  return (
+    <button
+      type={type}
+      disabled={disabled}
+      onClick={onClick}
+      className={`btn btn-${variant}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+type TabButtonProps = {
+  active: boolean;
+  children: ReactNode;
+  badge?: number;
+  onClick: () => void;
+  disabled?: boolean;
+};
+
+function TabButton({
+  active,
+  children,
+  badge = 0,
+  onClick,
+  disabled = false,
+}: TabButtonProps) {
+  return (
+    <button
+      className={`tab-btn ${active ? "active" : ""} ${disabled ? "is-disabled" : ""}`}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+    >
+      <span>{children}</span>
+      {badge > 0 && <strong>{badge}</strong>}
+    </button>
+  );
+}
+
+type StatCardProps = {
+  title: string;
+  value: string | number;
+  caption: string;
+};
+
+function StatCard({ title, value, caption }: StatCardProps) {
+  return (
+    <div className="stat-card glass">
+      <span>{title}</span>
+      <strong>{value}</strong>
+      <small>{caption}</small>
+    </div>
+  );
+}
+
+export default function App() {
+  const [lang, setLang] = useState<Language>("en");
+  const t = TEXT[lang];
+
+  const [step, setStep] = useState<StepName>("import");
+  const [sourceType, setSourceType] = useState<SourceType>("file");
+  const [url, setUrl] = useState("");
+  const [pasteText, setPasteText] = useState("");
+  const [importedContent, setImportedContent] = useState<ImportedContent | null>(null);
+
+  const [splitMethod, setSplitMethod] = useState<SplitMethod>("characters");
+  const [maxChars, setMaxChars] = useState(900);
+  const [startCode, setStartCode] = useState("[START]");
+  const [endCode, setEndCode] = useState("[END]");
+
+  const [chunks, setChunks] = useState<ContentChunk[]>([]);
+  const [drafts, setDrafts] = useState<DraftPost[]>([]);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [stats, setStats] = useState<PostStat[]>([]);
+
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const imageRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const demoText = lang === "en" ? DEMO_TEXT_EN : DEMO_TEXT_ID;
+  const rawText = importedContent?.rawText || "";
+
+  const hasImportedContent = rawText.trim().length > 0;
+  const hasChunks = chunks.length > 0;
+  const approvedDrafts = drafts.filter((draft) => draft.status === "approved");
+  const hasApprovedDrafts = approvedDrafts.length > 0;
+  const hasPublishedPosts = stats.length > 0;
+
+  const estimatedChunks = useMemo(() => {
+    if (!rawText.trim()) return 0;
+
+    if (splitMethod === "paragraphs") {
+      return extractByParagraphs(rawText, maxChars).length;
+    }
+
+    if (splitMethod === "markers") {
+      return extractByMarkers(rawText, startCode, endCode).length;
+    }
+
+    return extractByChars(rawText, maxChars).length;
+  }, [rawText, splitMethod, maxChars, startCode, endCode]);
+
+  const totalReach = useMemo(() => {
+    return stats.reduce((total, item) => total + item.reach, 0);
+  }, [stats]);
+
+  const activePlatforms = useMemo(() => {
+    return new Set(stats.map((item) => item.platform)).size;
+  }, [stats]);
+
+  function importContent(sourceTypeValue: SourceType, sourceName: string, text: string) {
+    const cleanText = text.trim();
+
+    setImportedContent({
+      id: makeId("content"),
+      sourceType: sourceTypeValue,
+      sourceName,
+      rawText: cleanText,
+      charCount: cleanText.length,
+      importedAt: new Date().toISOString(),
+    });
+
+    setChunks([]);
+    setDrafts([]);
+    setQueue([]);
+  }
+
+  function handleUseDemo() {
+    importContent("paste", lang === "en" ? "demo-content.txt" : "konten-demo.txt", demoText);
+  }
+
+  function handleFileUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const fileName = file.name;
+    const lower = file.name.toLowerCase();
+
+    if (lower.endsWith(".txt")) {
+      const reader = new FileReader();
+
+      reader.onload = () => {
+        importContent("file", fileName, String(reader.result || ""));
+      };
+
+      reader.readAsText(file);
+      return;
+    }
+
+    if (lower.endsWith(".pdf") || lower.endsWith(".docx") || lower.endsWith(".doc")) {
+      importContent(
+        "file",
+        fileName,
+        `${demoText}\n\n[Local preview note]\nPDF/DOCX parsing will be connected to backend in the next phase.`
+      );
+      return;
+    }
+
+    alert(
+      lang === "en"
+        ? "Supported files: TXT, PDF, DOC, DOCX."
+        : "File yang didukung: TXT, PDF, DOC, DOCX."
+    );
+  }
+
+  function handleUrlImport() {
+    if (!url.trim()) return;
+
+    importContent(
+      "url",
+      url.trim(),
+      `${lang === "en" ? "Content from URL" : "Konten dari URL"}: ${url.trim()}\n\n${demoText}`
+    );
+  }
+
+  function handlePasteImport() {
+    if (!pasteText.trim()) return;
+    importContent("paste", "manual-paste", pasteText);
+  }
+
+  function proceedToSplit() {
+    if (!hasImportedContent) {
+      alert(t.importFirstAlert);
+      return;
+    }
+
+    setStep("split");
+  }
+
+  function generateChunksAndContinue() {
+    if (!hasImportedContent) {
+      alert(t.importFirstAlert);
+      return;
+    }
+
+    let result: string[] = [];
+
+    if (splitMethod === "paragraphs") {
+      result = extractByParagraphs(rawText, maxChars);
+    } else if (splitMethod === "markers") {
+      result = extractByMarkers(rawText, startCode, endCode);
+    } else {
+      result = extractByChars(rawText, maxChars);
+    }
+
+    if (result.length === 0) {
+      result = [rawText.slice(0, 5000)];
+    }
+
+    const nextChunks: ContentChunk[] = result.map((text, index) => ({
+      id: makeId(`chunk_${index + 1}`),
+      index: index + 1,
+      text,
+      charCount: text.length,
+    }));
+
+    const nextDrafts: DraftPost[] = nextChunks.map((chunk) => ({
+      id: makeId(`draft_${chunk.index}`),
+      chunkId: chunk.id,
+      caption: chunk.text,
+      platforms: [],
+      status: "draft",
+    }));
+
+    setChunks(nextChunks);
+    setDrafts(nextDrafts);
+    setStep("review");
+  }
+
+  function updateDraftCaption(draftId: string, caption: string) {
+    setDrafts((prev) =>
+      prev.map((draft) =>
+        draft.id === draftId
+          ? {
+              ...draft,
+              caption,
+              status: draft.status === "approved" ? "reviewed" : draft.status,
+            }
+          : draft
+      )
+    );
+  }
+
+  function togglePlatform(draftId: string, platformId: PlatformId) {
+    setDrafts((prev) =>
+      prev.map((draft) => {
+        if (draft.id !== draftId) return draft;
+
+        const nextPlatforms = draft.platforms.includes(platformId)
+          ? draft.platforms.filter((item) => item !== platformId)
+          : [...draft.platforms, platformId];
+
+        return {
+          ...draft,
+          platforms: nextPlatforms,
+          status: draft.status === "approved" ? "reviewed" : draft.status,
+        };
+      })
+    );
+  }
+
+  function handleImageUpload(draftId: string, event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const ext = file.name.split(".").pop()?.toLowerCase();
+
+    if (!ext || !["jpg", "jpeg", "png", "webp"].includes(ext)) {
+      alert("Supported image formats: JPG, JPEG, PNG, WEBP.");
+      return;
+    }
+
+    const uploadedImage: UploadedImage = {
+      name: `post_${draftId.slice(-5)}.${ext}`,
+      url: URL.createObjectURL(file),
+    };
+
+    setDrafts((prev) =>
+      prev.map((draft) =>
+        draft.id === draftId
+          ? {
+              ...draft,
+              image: uploadedImage,
+              status: draft.status === "approved" ? "reviewed" : draft.status,
+            }
+          : draft
+      )
+    );
+  }
+
+  function generateVisualPrompt(draftId: string) {
+    const draft = drafts.find((item) => item.id === draftId);
+    if (!draft) return;
+
+    const prompt =
+      lang === "en"
+        ? `Modern social media visual, pastel earth-tone palette, editorial composition, clean layout, warm natural lighting, suitable for Auto POST. Main idea: ${draft.caption.slice(0, 220)}`
+        : `Visual media sosial modern, palet pastel-earth, komposisi editorial, layout bersih, pencahayaan hangat natural, cocok untuk Auto POST. Ide utama: ${draft.caption.slice(0, 220)}`;
+
+    setDrafts((prev) =>
+      prev.map((item) =>
+        item.id === draftId
+          ? {
+              ...item,
+              visualPrompt: prompt,
+            }
+          : item
+      )
+    );
+  }
+
+  function approveDraft(draftId: string) {
+    const draft = drafts.find((item) => item.id === draftId);
+    if (!draft) return;
+
+    if (!draft.caption.trim()) return;
+    if (draft.platforms.length === 0) {
+      alert(t.platformAlert);
+      return;
+    }
+
+    setDrafts((prev) =>
+      prev.map((item) =>
+        item.id === draftId
+          ? {
+              ...item,
+              status: "approved",
+            }
+          : item
+      )
+    );
+  }
+
+  function continueToSchedule() {
+    if (!hasApprovedDrafts) {
+      alert(t.approveFirstAlert);
+      return;
+    }
+
+    const existingDraftIds = new Set(queue.map((item) => item.draftId));
+
+    const newQueueItems: QueueItem[] = approvedDrafts
+      .filter((draft) => !existingDraftIds.has(draft.id))
+      .map((draft) => ({
+        id: makeId("queue"),
+        draftId: draft.id,
+        caption: draft.caption,
+        platforms: draft.platforms,
+        image: draft.image,
+        publishMode: "scheduled",
+        status: "ready",
+      }));
+
+    if (newQueueItems.length > 0) {
+      setQueue((prev) => [...prev, ...newQueueItems]);
+    }
+
+    setStep("schedule");
+  }
+
+  function updateSchedule(queueId: string, scheduledAt: string) {
+    setQueue((prev) =>
+      prev.map((item) =>
+        item.id === queueId
+          ? {
+              ...item,
+              scheduledAt,
+              publishMode: "scheduled",
+              status: scheduledAt ? "scheduled" : "ready",
+            }
+          : item
+      )
+    );
+  }
+
+  async function publishQueueItem(queueId: string) {
+    const item = queue.find((queueItem) => queueItem.id === queueId);
+    if (!item) return;
+
+    setQueue((prev) =>
+      prev.map((queueItem) =>
+        queueItem.id === queueId
+          ? {
+              ...queueItem,
+              publishMode: "now",
+              status: "publishing",
+            }
+          : queueItem
+      )
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 900));
+
+    const now = new Date();
+    const date = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, "0"),
+      String(now.getDate()).padStart(2, "0"),
+    ].join("-");
+
+    const time = [
+      String(now.getHours()).padStart(2, "0"),
+      String(now.getMinutes()).padStart(2, "0"),
+    ].join(":");
+
+    const newStats: PostStat[] = item.platforms.map((platform) => ({
+      id: Date.now() + Math.random(),
+      platform,
+      text: `${item.caption.slice(0, 90)}...`,
+      date: `${date} ${time}`,
+      reach: Math.floor(Math.random() * 9000 + 1500),
+      image: item.image?.name || null,
+    }));
+
+    setStats((prev) => [...newStats, ...prev]);
+
+    setQueue((prev) =>
+      prev.map((queueItem) =>
+        queueItem.id === queueId
+          ? {
+              ...queueItem,
+              status: "published",
+              reach: newStats.reduce((total, stat) => total + stat.reach, 0),
+            }
+          : queueItem
+      )
+    );
+  }
+
+  function switchLanguage(nextLang: Language) {
+    setLang(nextLang);
+  }
+
+  function stepDisabled(target: StepName) {
+    if (target === "import") return false;
+    if (target === "split") return !hasImportedContent;
+    if (target === "review") return !hasChunks;
+    if (target === "schedule") return !hasApprovedDrafts;
+    if (target === "analytics") return !hasPublishedPosts && queue.length === 0;
+    return false;
+  }
+
+  function renderHeader() {
+    return (
+      <header className="topbar">
+        <div className="topbar-inner">
+          <div className="brand">
+            <img src="/logo-autopost.svg" alt="Auto POST" className="brand-logo" />
+            <div>
+              <strong>{t.brand}</strong>
+              <span>{t.subtitle}</span>
+            </div>
+          </div>
+
+          <div className="topbar-right">
+            <div className="lang-switcher">
+              <button
+                className={lang === "en" ? "active" : ""}
+                onClick={() => switchLanguage("en")}
+              >
+                {t.langEnglish}
+              </button>
+              <button
+                className={lang === "id" ? "active" : ""}
+                onClick={() => switchLanguage("id")}
+              >
+                {t.langIndonesian}
+              </button>
+            </div>
+
+            <nav className="tabs workflow-steps">
+              <TabButton active={step === "import"} onClick={() => setStep("import")}>
+                {t.import}
+              </TabButton>
+
+              <TabButton
+                active={step === "split"}
+                badge={hasImportedContent ? 1 : 0}
+                disabled={stepDisabled("split")}
+                onClick={() => setStep("split")}
+              >
+                {t.split}
+              </TabButton>
+
+              <TabButton
+                active={step === "review"}
+                badge={chunks.length}
+                disabled={stepDisabled("review")}
+                onClick={() => setStep("review")}
+              >
+                {t.review}
+              </TabButton>
+
+              <TabButton
+                active={step === "schedule"}
+                badge={approvedDrafts.length}
+                disabled={stepDisabled("schedule")}
+                onClick={() => continueToSchedule()}
+              >
+                {t.schedule}
+              </TabButton>
+
+              <TabButton
+                active={step === "analytics"}
+                badge={stats.length}
+                disabled={stepDisabled("analytics")}
+                onClick={() => setStep("analytics")}
+              >
+                {t.analytics}
+              </TabButton>
+            </nav>
+          </div>
+        </div>
+      </header>
+    );
+  }
+
+  function renderImportStep() {
+    return (
+      <div className="page-grid">
+        <section className="intro-card glass">
+          <p className="eyebrow">{t.importEyebrow}</p>
+          <h1>{t.importHeadline}</h1>
+          <p>{t.importDesc}</p>
+
+          <div className="hero-actions">
+            <Button onClick={handleUseDemo}>{t.useDemo}</Button>
+            <Button variant="secondary" onClick={() => fileRef.current?.click()}>
+              {t.uploadImage.replace("Image", "File").replace("Gambar", "File")}
+            </Button>
+          </div>
+        </section>
+
+        <section className="panel glass">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">{t.importEyebrow}</p>
+              <h2>{t.importTitle}</h2>
+            </div>
+
+            <div className="switcher">
+              <button
+                className={sourceType === "file" ? "active" : ""}
+                onClick={() => setSourceType("file")}
+              >
+                {t.sourceFile}
+              </button>
+              <button
+                className={sourceType === "url" ? "active" : ""}
+                onClick={() => setSourceType("url")}
+              >
+                {t.sourceUrl}
+              </button>
+              <button
+                className={sourceType === "paste" ? "active" : ""}
+                onClick={() => setSourceType("paste")}
+              >
+                {t.sourcePaste}
+              </button>
+            </div>
+          </div>
+
+          {sourceType === "file" && (
+            <div className="upload-box" onClick={() => fileRef.current?.click()}>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".txt,.pdf,.doc,.docx"
+                onChange={handleFileUpload}
+                hidden
+              />
+
+              <div className="upload-icon" aria-hidden="true">
+                <svg className="upload-svg" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 16V4" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+                  <path d="M7 9l5-5 5 5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+                </svg>
+              </div>
+
+              <strong>{t.uploadClick}</strong>
+              <span>{t.uploadHelp}</span>
+
+              {importedContent?.sourceType === "file" && (
+                <em>
+                  {t.activeFile} {importedContent.sourceName}
+                </em>
+              )}
+            </div>
+          )}
+
+          {sourceType === "url" && (
+            <div className="form-group">
+              <label>{t.urlLabel}</label>
+              <input
+                value={url}
+                onChange={(event) => setUrl(event.target.value)}
+                placeholder={t.urlPlaceholder}
+              />
+
+              <Button onClick={handleUrlImport} disabled={!url.trim()}>
+                {lang === "en" ? "Import URL" : "Impor URL"}
+              </Button>
+            </div>
+          )}
+
+          {sourceType === "paste" && (
+            <div className="form-group">
+              <label>{t.pasteLabel}</label>
+              <textarea
+                value={pasteText}
+                onChange={(event) => setPasteText(event.target.value)}
+                placeholder={t.pastePlaceholder}
+              />
+
+              <Button onClick={handlePasteImport} disabled={!pasteText.trim()}>
+                {lang === "en" ? "Import Pasted Text" : "Impor Teks"}
+              </Button>
+            </div>
+          )}
+        </section>
+
+        <section className="panel glass full">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">{t.sourcePreview}</p>
+              <h2>{importedContent?.sourceName || t.noText}</h2>
+            </div>
+
+            <Button onClick={proceedToSplit} disabled={!hasImportedContent}>
+              {t.proceedToSplit}
+            </Button>
+          </div>
+
+          <pre className="preview-box">{rawText || t.noText}</pre>
+        </section>
+      </div>
+    );
+  }
+
+  function renderSplitStep() {
+    return (
+      <div className="page-grid">
+        <section className="intro-card glass">
+          <p className="eyebrow">{t.splitEyebrow}</p>
+          <h1>{t.splitHeadline}</h1>
+          <p>{t.splitDesc}</p>
+
+          <div className="hero-actions">
+            <Button variant="secondary" onClick={() => setStep("import")}>
+              {t.backToImport}
+            </Button>
+            <Button onClick={generateChunksAndContinue} disabled={!hasImportedContent}>
+              {t.generateChunks}
+            </Button>
+          </div>
+        </section>
+
+        <section className="panel glass">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">{t.splitMethod}</p>
+              <h2>{t.splitTitle}</h2>
+            </div>
+          </div>
+
+          <div className="mode-row split-mode-row">
+            <button
+              className={splitMethod === "characters" ? "active" : ""}
+              onClick={() => setSplitMethod("characters")}
+            >
+              {t.byCharacters}
+            </button>
+            <button
+              className={splitMethod === "paragraphs" ? "active" : ""}
+              onClick={() => setSplitMethod("paragraphs")}
+            >
+              {t.byParagraphs}
+            </button>
+            <button
+              className={splitMethod === "markers" ? "active" : ""}
+              onClick={() => setSplitMethod("markers")}
+            >
+              {t.byMarkers}
+            </button>
+          </div>
+
+          {(splitMethod === "characters" || splitMethod === "paragraphs") && (
+            <div className="form-group">
+              <label>{t.maxChars}</label>
+              <input
+                type="number"
+                min="100"
+                max="5000"
+                value={maxChars}
+                onChange={(event) => setMaxChars(Number(event.target.value))}
+              />
+            </div>
+          )}
+
+          {splitMethod === "markers" && (
+            <div className="two-cols">
+              <div className="form-group">
+                <label>{t.startCode}</label>
+                <input
+                  value={startCode}
+                  onChange={(event) => setStartCode(event.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label>{t.endCode}</label>
+                <input
+                  value={endCode}
+                  onChange={(event) => setEndCode(event.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="mini-summary">
+            <span>{t.estimatedChunks}</span>
+            <strong>{estimatedChunks}</strong>
+          </div>
+        </section>
+
+        <section className="panel glass full">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">{t.sourcePreview}</p>
+              <h2>{importedContent?.sourceName}</h2>
+            </div>
+
+            <Button onClick={generateChunksAndContinue} disabled={!hasImportedContent}>
+              {t.generateChunks}
+            </Button>
+          </div>
+
+          <pre className="preview-box">{rawText}</pre>
+        </section>
+      </div>
+    );
+  }
+
+  function renderReviewStep() {
+    if (!hasChunks) {
+      return (
+        <div className="empty-card glass">
+          <strong>{t.noChunksTitle}</strong>
+          <span>{t.noChunksDesc}</span>
+          <Button onClick={() => setStep("split")}>{t.split}</Button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="stack">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">{t.reviewEyebrow}</p>
+            <h1>{t.reviewHeadline}</h1>
+            <p className="section-desc">{t.reviewDesc}</p>
+          </div>
+
+          <Button onClick={continueToSchedule} disabled={!hasApprovedDrafts}>
+            {t.continueToSchedule}
+          </Button>
+        </div>
+
+        {drafts.map((draft, index) => (
+          <article className="editor-card glass" key={draft.id}>
+            <div className="editor-head">
+              <div>
+                <strong>
+                  {t.chunk} #{index + 1}
+                </strong>
+                <span>
+                  {draft.caption.length} {t.characters}
+                </span>
+              </div>
+
+              <b className={draft.status === "approved" ? "success-badge" : "draft-badge"}>
+                {draft.status === "approved" ? t.approved : t.draft}
+              </b>
+            </div>
+
+            <textarea
+              value={draft.caption}
+              maxLength={5000}
+              onChange={(event) => updateDraftCaption(draft.id, event.target.value)}
+            />
+
+            <div className="editor-meta">
+              <span>
+                {draft.caption.length}/5000 {t.characters}
+              </span>
+              <button onClick={() => generateVisualPrompt(draft.id)}>
+                {t.generateImagePrompt}
+              </button>
+            </div>
+
+            {draft.visualPrompt && (
+              <div className="ai-box">
+                <strong>{t.visualPrompt}</strong>
+                <p>{draft.visualPrompt}</p>
+              </div>
+            )}
+
+            <div className="platform-row">
+              {PLATFORMS.map((platform) => {
+                const selected = draft.platforms.includes(platform.id);
+
+                return (
+                  <button
+                    key={platform.id}
+                    className={selected ? "selected" : ""}
+                    style={{ "--platform-color": platform.color } as CSSProperties}
+                    onClick={() => togglePlatform(draft.id, platform.id)}
+                  >
+                    <i>{platform.icon}</i>
+                    {platform.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="post-tools">
+              <button
+                className="image-button"
+                onClick={() => imageRefs.current[draft.id]?.click()}
+              >
+                {t.uploadImage}
+              </button>
+
+              <input
+                ref={(element) => {
+                  imageRefs.current[draft.id] = element;
+                }}
+                type="file"
+                accept="image/jpeg,image/jpg,image/png,image/webp"
+                hidden
+                onChange={(event) => handleImageUpload(draft.id, event)}
+              />
+
+              {draft.image && (
+                <div className="image-chip">
+                  <img src={draft.image.url} alt="" />
+                  <span>{draft.image.name}</span>
+                </div>
+              )}
+
+              <Button onClick={() => approveDraft(draft.id)}>
+                {draft.status === "approved" ? t.approved : t.approve}
+              </Button>
+            </div>
+          </article>
+        ))}
+      </div>
+    );
+  }
+
+  function renderScheduleStep() {
+    if (!hasApprovedDrafts && queue.length === 0) {
+      return (
+        <div className="empty-card glass">
+          <strong>{t.noApprovedTitle}</strong>
+          <span>{t.noApprovedDesc}</span>
+          <Button onClick={() => setStep("review")}>{t.review}</Button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="stack">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">{t.scheduleEyebrow}</p>
+            <h1>{t.scheduleHeadline}</h1>
+            <p className="section-desc">{t.scheduleDesc}</p>
+          </div>
+
+          <Button onClick={() => setStep("analytics")}>{t.goToAnalytics}</Button>
+        </div>
+
+        {queue.map((item, index) => (
+          <article className="editor-card glass" key={item.id}>
+            <div className="editor-head">
+              <div>
+                <strong>
+                  Queue #{index + 1}
+                </strong>
+                <span>
+                  {item.platforms.map((platform) => getPlatform(platform)?.label).join(", ")}
+                </span>
+              </div>
+
+              <b className={item.status === "published" ? "success-badge" : "draft-badge"}>
+                {item.status === "published"
+                  ? t.published
+                  : item.status === "scheduled"
+                    ? t.scheduled
+                    : item.status === "publishing"
+                      ? t.publishing
+                      : "Ready"}
+              </b>
+            </div>
+
+            <textarea value={item.caption} readOnly />
+
+            <div className="post-tools">
+              {item.image && (
+                <div className="image-chip">
+                  <img src={item.image.url} alt="" />
+                  <span>{item.image.name}</span>
+                </div>
+              )}
+
+              <input
+                className="schedule-input"
+                type="datetime-local"
+                value={item.scheduledAt || ""}
+                onChange={(event) => updateSchedule(item.id, event.target.value)}
+              />
+
+              <Button
+                onClick={() => publishQueueItem(item.id)}
+                disabled={item.status === "publishing" || item.status === "published"}
+              >
+                {item.status === "publishing" ? t.publishing : t.publishNow}
+              </Button>
+            </div>
+          </article>
+        ))}
+      </div>
+    );
+  }
+
+  function renderAnalyticsStep() {
+    const avgReach = Math.floor(totalReach / (stats.length || 1));
+
+    return (
+      <div className="stack">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">{t.analyticsEyebrow}</p>
+            <h1>{t.analyticsHeadline}</h1>
+          </div>
+        </div>
+
+        <div className="stats-grid">
+          <StatCard title={t.totalPosts} value={stats.length} caption="published items" />
+          <StatCard title={t.totalReach} value={formatNumber(totalReach)} caption="simulated reach" />
+          <StatCard title={t.activePlatforms} value={activePlatforms} caption="used channels" />
+          <StatCard title={t.averageReach} value={formatNumber(avgReach)} caption="average per post" />
+        </div>
+
+        <section className="panel glass">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Breakdown</p>
+              <h2>{t.reachByPlatform}</h2>
+            </div>
+          </div>
+
+          <div className="bar-list">
+            {PLATFORMS.map((platform) => {
+              const platformStats = stats.filter((item) => item.platform === platform.id);
+              const reach = platformStats.reduce((total, item) => total + item.reach, 0);
+
+              const max = Math.max(
+                ...PLATFORMS.map((item) =>
+                  stats
+                    .filter((stat) => stat.platform === item.id)
+                    .reduce((total, stat) => total + stat.reach, 0)
+                ),
+                1
+              );
+
+              const width = `${(reach / max) * 100}%`;
+
+              return (
+                <div className="bar-item" key={platform.id}>
+                  <span>{platform.label}</span>
+                  <div>
+                    <i style={{ width, background: platform.color }} />
+                  </div>
+                  <strong style={{ color: platform.color }}>{formatNumber(reach)}</strong>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="panel glass">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">History</p>
+              <h2>{t.recentPosts}</h2>
+            </div>
+          </div>
+
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>{t.platform}</th>
+                  <th>{t.content}</th>
+                  <th>{t.image}</th>
+                  <th>{t.date}</th>
+                  <th>{t.reach}</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {stats.map((item) => {
+                  const platform = getPlatform(item.platform);
+
+                  return (
+                    <tr key={item.id}>
+                      <td>
+                        <span
+                          className="platform-pill"
+                          style={
+                            {
+                              "--platform-color": platform?.color || "#94A3B8",
+                            } as CSSProperties
+                          }
+                        >
+                          {platform?.icon} {platform?.label}
+                        </span>
+                      </td>
+                      <td>{item.text}</td>
+                      <td>{item.image || "-"}</td>
+                      <td>{item.date}</td>
+                      <td>
+                        <strong>{formatNumber(item.reach)}</strong>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <main className="app-shell">
+      <section className="hero-bg" />
+
+      {renderHeader()}
+
+      <section className="container">
+        {step === "import" && renderImportStep()}
+        {step === "split" && renderSplitStep()}
+        {step === "review" && renderReviewStep()}
+        {step === "schedule" && renderScheduleStep()}
+        {step === "analytics" && renderAnalyticsStep()}
+      </section>
+    </main>
+  );
+}

@@ -1,0 +1,723 @@
+import { useMemo, useRef, useState } from "react";
+import "./App.css";
+
+const PLATFORMS = [
+  { id: "instagram", label: "Instagram", color: "#F43F5E", icon: "◉" },
+  { id: "twitter", label: "X / Twitter", color: "#38BDF8", icon: "𝕏" },
+  { id: "facebook", label: "Facebook", color: "#3B82F6", icon: "f" },
+  { id: "linkedin", label: "LinkedIn", color: "#0EA5E9", icon: "in" },
+  { id: "tiktok", label: "TikTok", color: "#A855F7", icon: "♪" },
+  { id: "youtube", label: "YouTube", color: "#EF4444", icon: "▶" },
+];
+
+const DEMO_TEXT = `Bab 1: Strategi Digital Marketing di Era AI
+
+Di era digital yang bergerak sangat cepat, brand tidak lagi cukup hanya hadir di media sosial. Mereka perlu membangun sistem konten yang konsisten, relevan, dan mampu beradaptasi dengan perilaku audiens.
+
+Bab 2: Content Repurposing
+
+Satu dokumen panjang dapat diubah menjadi banyak konten pendek untuk Instagram, LinkedIn, TikTok, YouTube Shorts, Facebook, dan X. Strategi ini membuat produksi konten lebih efisien.
+
+Bab 3: Automasi Posting
+
+Dengan dashboard yang baik, pengguna dapat memotong konten, mengedit caption, menambahkan gambar, memilih platform, mengatur jadwal, dan memantau statistik performa.
+
+Bab 4: AI untuk Ide Visual
+
+AI dapat membantu membuat prompt gambar berdasarkan isi konten, sehingga setiap posting memiliki visual yang lebih menarik, konsisten, dan sesuai konteks.
+
+Bab 5: Analitik
+
+Reach, engagement, jumlah posting, dan performa per platform perlu dipantau untuk mengetahui strategi mana yang paling efektif.`;
+
+const MOCK_STATS = [
+  {
+    id: 1,
+    platform: "instagram",
+    text: "Strategi konten digital berbasis AI untuk meningkatkan engagement...",
+    date: "2026-05-04 09:15",
+    reach: 4820,
+    image: "post_001.jpg",
+  },
+  {
+    id: 2,
+    platform: "linkedin",
+    text: "Content repurposing membantu tim marketing bekerja lebih efisien...",
+    date: "2026-05-04 10:40",
+    reach: 3200,
+    image: null,
+  },
+  {
+    id: 3,
+    platform: "youtube",
+    text: "Cara mengubah artikel panjang menjadi video pendek edukatif...",
+    date: "2026-05-03 16:20",
+    reach: 12400,
+    image: "post_003.png",
+  },
+];
+
+function extractByChars(text, maxChars) {
+  if (!text || maxChars <= 0) return [];
+
+  const chunks = [];
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    let end = cursor + maxChars;
+
+    if (end < text.length) {
+      const nearestSpace = text.lastIndexOf(" ", end);
+      if (nearestSpace > cursor) end = nearestSpace;
+    }
+
+    const piece = text.slice(cursor, end).trim();
+    if (piece) chunks.push(piece);
+
+    cursor = end + 1;
+  }
+
+  return chunks;
+}
+
+function extractByCodes(text, startCode, endCode) {
+  if (!text || !startCode || !endCode) return [];
+
+  const chunks = [];
+  let searchFrom = 0;
+
+  while (true) {
+    const start = text.indexOf(startCode, searchFrom);
+    if (start === -1) break;
+
+    const end = text.indexOf(endCode, start + startCode.length);
+    if (end === -1) break;
+
+    const piece = text.slice(start + startCode.length, end).trim();
+    if (piece) chunks.push(piece);
+
+    searchFrom = end + endCode.length;
+  }
+
+  return chunks;
+}
+
+function formatNumber(value) {
+  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
+  return String(value);
+}
+
+function getPlatform(id) {
+  return PLATFORMS.find((item) => item.id === id);
+}
+
+function Button({ children, onClick, variant = "primary", disabled = false, type = "button" }) {
+  return (
+    <button
+      type={type}
+      disabled={disabled}
+      onClick={onClick}
+      className={`btn btn-${variant}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function TabButton({ active, children, badge, onClick }) {
+  return (
+    <button className={`tab-btn ${active ? "active" : ""}`} onClick={onClick}>
+      <span>{children}</span>
+      {badge > 0 && <strong>{badge}</strong>}
+    </button>
+  );
+}
+
+function StatCard({ title, value, caption }) {
+  return (
+    <div className="stat-card">
+      <span>{title}</span>
+      <strong>{value}</strong>
+      <small>{caption}</small>
+    </div>
+  );
+}
+
+export default function App() {
+  const [tab, setTab] = useState("extract");
+  const [sourceType, setSourceType] = useState("file");
+  const [url, setUrl] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [rawText, setRawText] = useState("");
+  const [extractMode, setExtractMode] = useState("chars");
+  const [maxChars, setMaxChars] = useState(900);
+  const [startCode, setStartCode] = useState("[START]");
+  const [endCode, setEndCode] = useState("[END]");
+  const [chunks, setChunks] = useState([]);
+  const [editedChunks, setEditedChunks] = useState([]);
+  const [selectedPlatforms, setSelectedPlatforms] = useState({});
+  const [uploadedImages, setUploadedImages] = useState({});
+  const [schedules, setSchedules] = useState({});
+  const [aiPrompts, setAiPrompts] = useState({});
+  const [pushing, setPushing] = useState({});
+  const [pushed, setPushed] = useState({});
+  const [stats, setStats] = useState(MOCK_STATS);
+
+  const fileRef = useRef(null);
+  const imageRefs = useRef({});
+
+  const totalReach = useMemo(() => {
+    return stats.reduce((total, item) => total + item.reach, 0);
+  }, [stats]);
+
+  const activePlatforms = useMemo(() => {
+    return new Set(stats.map((item) => item.platform)).size;
+  }, [stats]);
+
+  function handleFileUpload(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setFileName(file.name);
+
+    const isTextFile = file.name.toLowerCase().endsWith(".txt");
+
+    if (isTextFile) {
+      const reader = new FileReader();
+
+      reader.onload = () => {
+        setRawText(String(reader.result || ""));
+      };
+
+      reader.readAsText(file);
+      return;
+    }
+
+    setRawText(DEMO_TEXT);
+  }
+
+  function handleUseDemo() {
+    setFileName("demo-content.txt");
+    setRawText(DEMO_TEXT);
+  }
+
+  function handleExtract() {
+    let result = [];
+
+    if (sourceType === "url" && url.trim()) {
+      result = extractByChars(
+        `Konten dari URL: ${url}\n\n${DEMO_TEXT}`,
+        Number(maxChars)
+      );
+    } else if (extractMode === "chars") {
+      result = extractByChars(rawText, Number(maxChars));
+    } else {
+      result = extractByCodes(rawText, startCode, endCode);
+    }
+
+    if (result.length === 0 && rawText) {
+      result = [rawText.slice(0, 5000)];
+    }
+
+    setChunks(result);
+    setEditedChunks(result);
+    setSelectedPlatforms({});
+    setUploadedImages({});
+    setSchedules({});
+    setAiPrompts({});
+    setPushed({});
+    setTab("edit");
+  }
+
+  function handleEditChunk(index, value) {
+    setEditedChunks((prev) => {
+      const clone = [...prev];
+      clone[index] = value;
+      return clone;
+    });
+  }
+
+  function togglePlatform(chunkIndex, platformId) {
+    setSelectedPlatforms((prev) => {
+      const current = prev[chunkIndex] || [];
+      const next = current.includes(platformId)
+        ? current.filter((item) => item !== platformId)
+        : [...current, platformId];
+
+      return {
+        ...prev,
+        [chunkIndex]: next,
+      };
+    });
+  }
+
+  function handleImageUpload(chunkIndex, event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const ext = file.name.split(".").pop()?.toLowerCase();
+
+    if (!["jpg", "jpeg", "png", "webp"].includes(ext)) {
+      alert("Format gambar yang didukung: JPG, JPEG, PNG, WEBP.");
+      return;
+    }
+
+    const newName = `post_${String(chunkIndex + 1).padStart(3, "0")}.${ext}`;
+
+    setUploadedImages((prev) => ({
+      ...prev,
+      [chunkIndex]: {
+        name: newName,
+        url: URL.createObjectURL(file),
+      },
+    }));
+  }
+
+  function generateAiPrompt(chunkIndex) {
+    const text = editedChunks[chunkIndex] || "";
+
+    const prompt = `Modern editorial social media visual, premium gradient background, Indonesian digital marketing theme, clean composition, cinematic lighting, subtle AI technology elements, professional and inspiring mood. Main idea: ${text.slice(0, 220)}`;
+
+    setAiPrompts((prev) => ({
+      ...prev,
+      [chunkIndex]: prompt,
+    }));
+  }
+
+  async function pushNow(chunkIndex) {
+    const platforms = selectedPlatforms[chunkIndex] || [];
+
+    if (platforms.length === 0) {
+      alert("Pilih minimal satu platform terlebih dahulu.");
+      return;
+    }
+
+    setPushing((prev) => ({
+      ...prev,
+      [chunkIndex]: true,
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 900));
+
+    const now = new Date();
+
+    const date = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, "0"),
+      String(now.getDate()).padStart(2, "0"),
+    ].join("-");
+
+    const time = [
+      String(now.getHours()).padStart(2, "0"),
+      String(now.getMinutes()).padStart(2, "0"),
+    ].join(":");
+
+    const newStats = platforms.map((platformId) => ({
+      id: Date.now() + Math.random(),
+      platform: platformId,
+      text: `${editedChunks[chunkIndex]?.slice(0, 90)}...`,
+      date: `${date} ${time}`,
+      reach: Math.floor(Math.random() * 9000 + 1500),
+      image: uploadedImages[chunkIndex]?.name || null,
+    }));
+
+    setStats((prev) => [...newStats, ...prev]);
+
+    setPushing((prev) => ({
+      ...prev,
+      [chunkIndex]: false,
+    }));
+
+    setPushed((prev) => ({
+      ...prev,
+      [chunkIndex]: true,
+    }));
+  }
+
+  return (
+    <main className="app-shell">
+      <section className="hero-bg" />
+
+      <header className="topbar">
+        <div className="brand">
+          <div className="brand-mark">S</div>
+          <div>
+            <strong>SocialCast Pro</strong>
+            <span>AI content splitter & social scheduler</span>
+          </div>
+        </div>
+
+        <nav className="tabs">
+          <TabButton active={tab === "extract"} onClick={() => setTab("extract")}>
+            Ekstrak
+          </TabButton>
+          <TabButton active={tab === "edit"} badge={chunks.length} onClick={() => setTab("edit")}>
+            Edit & Jadwal
+          </TabButton>
+          <TabButton active={tab === "stats"} badge={stats.length} onClick={() => setTab("stats")}>
+            Statistik
+          </TabButton>
+        </nav>
+      </header>
+
+      <section className="container">
+        {tab === "extract" && (
+          <div className="page-grid">
+            <section className="intro-card glass">
+              <p className="eyebrow">Content Automation Dashboard</p>
+              <h1>Ubah dokumen panjang menjadi posting media sosial siap pakai.</h1>
+              <p>
+                Upload teks, pecah konten, edit caption, siapkan gambar, pilih platform,
+                jadwalkan, lalu pantau performanya dalam satu dashboard modern.
+              </p>
+
+              <div className="hero-actions">
+                <Button onClick={handleUseDemo}>Gunakan Demo</Button>
+                <Button variant="secondary" onClick={() => fileRef.current?.click()}>
+                  Upload File
+                </Button>
+              </div>
+            </section>
+
+            <section className="panel glass">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">Step 01</p>
+                  <h2>Import Konten</h2>
+                </div>
+                <div className="switcher">
+                  <button
+                    className={sourceType === "file" ? "active" : ""}
+                    onClick={() => setSourceType("file")}
+                  >
+                    File
+                  </button>
+                  <button
+                    className={sourceType === "url" ? "active" : ""}
+                    onClick={() => setSourceType("url")}
+                  >
+                    URL
+                  </button>
+                </div>
+              </div>
+
+              {sourceType === "file" ? (
+                <div className="upload-box" onClick={() => fileRef.current?.click()}>
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept=".txt,.pdf,.docx"
+                    onChange={handleFileUpload}
+                    hidden
+                  />
+                  <div className="upload-icon">⬆</div>
+                  <strong>Klik untuk upload file</strong>
+                  <span>TXT terbaca langsung. PDF/DOCX memakai demo preview lokal.</span>
+                  {fileName && <em>File aktif: {fileName}</em>}
+                </div>
+              ) : (
+                <div className="form-group">
+                  <label>URL Artikel / Halaman Web</label>
+                  <input
+                    value={url}
+                    onChange={(event) => setUrl(event.target.value)}
+                    placeholder="https://contoh.com/artikel"
+                  />
+                  <small>
+                    Pada versi frontend lokal ini URL masih disimulasikan. Untuk ekstraksi real
+                    perlu backend scraper/parser.
+                  </small>
+                </div>
+              )}
+            </section>
+
+            <section className="panel glass">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">Step 02</p>
+                  <h2>Atur Ekstraksi</h2>
+                </div>
+              </div>
+
+              <div className="mode-row">
+                <button
+                  className={extractMode === "chars" ? "active" : ""}
+                  onClick={() => setExtractMode("chars")}
+                >
+                  Per Karakter
+                </button>
+                <button
+                  className={extractMode === "code" ? "active" : ""}
+                  onClick={() => setExtractMode("code")}
+                >
+                  Kode Awal - Akhir
+                </button>
+              </div>
+
+              {extractMode === "chars" ? (
+                <div className="form-group">
+                  <label>Maksimal karakter per potongan</label>
+                  <input
+                    type="number"
+                    min="100"
+                    max="5000"
+                    value={maxChars}
+                    onChange={(event) => setMaxChars(Number(event.target.value))}
+                  />
+                </div>
+              ) : (
+                <div className="two-cols">
+                  <div className="form-group">
+                    <label>Kode awal</label>
+                    <input value={startCode} onChange={(event) => setStartCode(event.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label>Kode akhir</label>
+                    <input value={endCode} onChange={(event) => setEndCode(event.target.value)} />
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="panel glass full">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">Step 03</p>
+                  <h2>Preview Teks</h2>
+                </div>
+
+                <Button onClick={handleExtract} disabled={!rawText && !url}>
+                  Ekstrak Konten
+                </Button>
+              </div>
+
+              <pre className="preview-box">
+                {rawText || "Belum ada teks. Upload file TXT atau klik Gunakan Demo."}
+              </pre>
+            </section>
+          </div>
+        )}
+
+        {tab === "edit" && (
+          <div className="stack">
+            <div className="section-title">
+              <div>
+                <p className="eyebrow">Step 04</p>
+                <h1>Edit caption, pilih platform, dan push posting.</h1>
+              </div>
+              <Button variant="secondary" onClick={() => setTab("extract")}>
+                Kembali
+              </Button>
+            </div>
+
+            {editedChunks.length === 0 && (
+              <div className="empty-card glass">
+                <strong>Belum ada potongan konten.</strong>
+                <span>Kembali ke tab Ekstrak untuk membuat potongan pertama.</span>
+              </div>
+            )}
+
+            {editedChunks.map((chunk, index) => (
+              <article className="editor-card glass" key={index}>
+                <div className="editor-head">
+                  <div>
+                    <strong>Potongan #{index + 1}</strong>
+                    <span>{chunk.length} karakter</span>
+                  </div>
+
+                  {pushed[index] && <b className="success-badge">Terposting</b>}
+                </div>
+
+                <textarea
+                  value={chunk}
+                  maxLength={5000}
+                  onChange={(event) => handleEditChunk(index, event.target.value)}
+                />
+
+                <div className="editor-meta">
+                  <span>{chunk.length}/5000 karakter</span>
+                  <button onClick={() => generateAiPrompt(index)}>
+                    Generate Prompt Gambar
+                  </button>
+                </div>
+
+                {aiPrompts[index] && (
+                  <div className="ai-box">
+                    <strong>Prompt visual AI</strong>
+                    <p>{aiPrompts[index]}</p>
+                  </div>
+                )}
+
+                <div className="platform-row">
+                  {PLATFORMS.map((platform) => {
+                    const selected = (selectedPlatforms[index] || []).includes(platform.id);
+
+                    return (
+                      <button
+                        key={platform.id}
+                        className={selected ? "selected" : ""}
+                        style={{
+                          "--platform-color": platform.color,
+                        }}
+                        onClick={() => togglePlatform(index, platform.id)}
+                      >
+                        <i>{platform.icon}</i>
+                        {platform.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="post-tools">
+                  <button className="image-button" onClick={() => imageRefs.current[index]?.click()}>
+                    Upload Gambar
+                  </button>
+
+                  <input
+                    ref={(element) => {
+                      imageRefs.current[index] = element;
+                    }}
+                    type="file"
+                    accept="image/jpeg,image/jpg,image/png,image/webp"
+                    hidden
+                    onChange={(event) => handleImageUpload(index, event)}
+                  />
+
+                  {uploadedImages[index] && (
+                    <div className="image-chip">
+                      <img src={uploadedImages[index].url} alt="" />
+                      <span>{uploadedImages[index].name}</span>
+                    </div>
+                  )}
+
+                  <input
+                    className="schedule-input"
+                    type="datetime-local"
+                    value={schedules[index] || ""}
+                    onChange={(event) =>
+                      setSchedules((prev) => ({
+                        ...prev,
+                        [index]: event.target.value,
+                      }))
+                    }
+                  />
+
+                  <Button onClick={() => pushNow(index)} disabled={pushing[index]}>
+                    {pushing[index] ? "Mengirim..." : pushed[index] ? "Push Lagi" : "Push Now"}
+                  </Button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+
+        {tab === "stats" && (
+          <div className="stack">
+            <div className="section-title">
+              <div>
+                <p className="eyebrow">Dashboard</p>
+                <h1>Statistik performa konten.</h1>
+              </div>
+            </div>
+
+            <div className="stats-grid">
+              <StatCard title="Total Post" value={stats.length} caption="semua platform" />
+              <StatCard title="Total Reach" value={formatNumber(totalReach)} caption="estimasi jangkauan" />
+              <StatCard title="Platform Aktif" value={activePlatforms} caption="channel digunakan" />
+              <StatCard
+                title="Average Reach"
+                value={formatNumber(Math.floor(totalReach / (stats.length || 1)))}
+                caption="rata-rata per post"
+              />
+            </div>
+
+            <section className="panel glass">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">Breakdown</p>
+                  <h2>Reach per Platform</h2>
+                </div>
+              </div>
+
+              <div className="bar-list">
+                {PLATFORMS.map((platform) => {
+                  const platformStats = stats.filter((item) => item.platform === platform.id);
+                  const reach = platformStats.reduce((total, item) => total + item.reach, 0);
+                  const max = Math.max(
+                    ...PLATFORMS.map((item) =>
+                      stats
+                        .filter((stat) => stat.platform === item.id)
+                        .reduce((total, stat) => total + stat.reach, 0)
+                    ),
+                    1
+                  );
+
+                  const width = `${(reach / max) * 100}%`;
+
+                  return (
+                    <div className="bar-item" key={platform.id}>
+                      <span>{platform.label}</span>
+                      <div>
+                        <i style={{ width, background: platform.color }} />
+                      </div>
+                      <strong style={{ color: platform.color }}>{formatNumber(reach)}</strong>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="panel glass">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">Riwayat</p>
+                  <h2>Posting Terakhir</h2>
+                </div>
+              </div>
+
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Platform</th>
+                      <th>Konten</th>
+                      <th>Gambar</th>
+                      <th>Tanggal</th>
+                      <th>Reach</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {stats.map((item) => {
+                      const platform = getPlatform(item.platform);
+
+                      return (
+                        <tr key={item.id}>
+                          <td>
+                            <span
+                              className="platform-pill"
+                              style={{ "--platform-color": platform?.color || "#94A3B8" }}
+                            >
+                              {platform?.icon} {platform?.label}
+                            </span>
+                          </td>
+                          <td>{item.text}</td>
+                          <td>{item.image || "-"}</td>
+                          <td>{item.date}</td>
+                          <td>
+                            <strong>{formatNumber(item.reach)}</strong>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        )}
+      </section>
+    </main>
+  );
+}
