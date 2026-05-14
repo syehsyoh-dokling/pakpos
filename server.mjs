@@ -678,7 +678,7 @@ async function proxyApi(req, res, url) {
 
 createServer(async (req, res) => {
   try {
-    const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+    const url = new URL(req.url || "/", `https://${req.headers.host || "autopost.binsaifuddin.it.com"}`);
     const pathname = decodeURIComponent(url.pathname.replace(/\/+$/, "") || "/");
 
     if (await handleGoogleAuth(req, res, pathname)) {
@@ -725,5 +725,5 @@ createServer(async (req, res) => {
     res.end("Internal Server Error");
   }
 }).listen(port, "0.0.0.0", () => {
-  console.log(`AutoPost web running at http://0.0.0.0:${port}`);
+  console.log(`AutoPost web running on port ${port}`);
 });

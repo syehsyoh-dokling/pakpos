@@ -14,10 +14,8 @@ import {
 } from "@platform/api-client";
 
 export const APP_CODE = "pakpos";
-const directUnapi = import.meta.env.VITE_UNAPI_DIRECT === "true";
-export const UNAPI_BASE_URL = directUnapi
-  ? import.meta.env.VITE_CENTRAL_API_URL || "https://unapi.danandad.org"
-  : window.location.origin;
+export const UNAPI_BASE_URL =
+  import.meta.env.VITE_CENTRAL_API_URL || "https://unapi.danandad.org";
 
 export type UnapiSession = AuthSession;
 export type UnapiUser = AuthUser;
@@ -195,4 +193,52 @@ export function importMediaOnUnapi(
   payload: Parameters<typeof importSocialcastMedia>[2]
 ) {
   return importSocialcastMedia(UNAPI_BASE_URL, accessToken, payload);
+}
+
+export function importMediaLinkOnUnapi(
+  accessToken: string,
+  payload: {
+    app_code: string;
+    postId: string;
+    postCode?: string;
+    mediaType: "image" | "video";
+    url: string;
+    name?: string;
+    caption?: string;
+    visualPrompt?: string;
+    platforms?: string[];
+    version?: number;
+    storedName?: string;
+  }
+) {
+  return requestJson<{ asset: SocialcastMediaAsset }>(
+    UNAPI_BASE_URL,
+    "/api/socialcast/import-media-link",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    accessToken
+  );
+}
+
+export function saveSocialcastCredentials(
+  accessToken: string,
+  payload: {
+    platform: string;
+    credentials: Record<string, string>;
+  }
+) {
+  return requestJson<unknown>(
+    UNAPI_BASE_URL,
+    "/api/socialcast/credentials",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        app_code: APP_CODE,
+        ...payload,
+      }),
+    },
+    accessToken
+  );
 }

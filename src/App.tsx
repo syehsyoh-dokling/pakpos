@@ -20,6 +20,7 @@ import {
   getSocialcastQueue,
   importArticleChunks,
   importMediaOnUnapi,
+  importMediaLinkOnUnapi,
   loginToUnapi,
   loginWithGoogleToken,
   logoutFromUnapi,
@@ -27,6 +28,7 @@ import {
   registerToUnapi,
   reviewArticle,
   saveArticleDraft,
+  saveSocialcastCredentials,
   scheduleSocialcast,
   submitArticle,
   type UnapiMediaAsset,
@@ -166,6 +168,7 @@ type Language = "en" | "id";
 
 type AuthProvider = "email" | "google" | "facebook" | "linkedin" | "x";
 type CredentialPanel = "ai" | "instagram" | "facebook" | "linkedin" | "x" | "youtube";
+type CredentialValues = Record<string, string>;
 
 type User = {
   id?: string | number;
@@ -980,6 +983,15 @@ export default function App() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showStartChoiceModal, setShowStartChoiceModal] = useState(false);
   const [activeCredentialPanel, setActiveCredentialPanel] = useState<CredentialPanel>("ai");
+  const [credentialValues, setCredentialValues] = useState<CredentialValues>(() => {
+    const raw = window.localStorage.getItem("pakpos.credentials.draft");
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw) as CredentialValues;
+    } catch {
+      return {};
+    }
+  });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [tutorialPlaying, setTutorialPlaying] = useState(true);
   const [tutorialMuted, setTutorialMuted] = useState(true);
@@ -1032,6 +1044,61 @@ export default function App() {
   const accessToken = getAccessToken(session);
   const demoText = lang === "en" ? DEMO_TEXT_EN : DEMO_TEXT_ID;
   const rawText = importedContent?.rawText || "";
+
+  function updateCredentialValue(key: string, value: string) {
+    setCredentialValues((prev) => {
+      const next = { ...prev, [key]: value };
+      window.localStorage.setItem("pakpos.credentials.draft", JSON.stringify(next));
+      return next;
+    });
+  }
+
+  async function saveCurrentCredentialPanel() {
+    if (activeCredentialPanel === "ai") {
+      window.localStorage.setItem("pakpos.credentials.draft", JSON.stringify(credentialValues));
+      setApiNotice(
+        lang === "en"
+          ? "AI endpoint settings are saved locally until the AI credential endpoint is available in UNAPI."
+          : "Pengaturan endpoint AI disimpan lokal sampai endpoint credential AI tersedia di UNAPI."
+      );
+      setShowSettingsModal(false);
+      return;
+    }
+
+    if (!accessToken) {
+      setLandingMode("login");
+      setShowSettingsModal(false);
+      setApiNotice(lang === "en" ? "Please login before saving credentials." : "Silakan login sebelum menyimpan credential.");
+      return;
+    }
+
+    const platform = activeCredentialPanel === "x" ? "twitter" : activeCredentialPanel;
+    const prefix = `${activeCredentialPanel}.`;
+    const credentials = Object.fromEntries(
+      Object.entries(credentialValues)
+        .filter(([key, value]) => key.startsWith(prefix) && value.trim())
+        .map(([key, value]) => [key.slice(prefix.length), value.trim()])
+    );
+
+    if (!Object.keys(credentials).length) {
+      setShowSettingsModal(false);
+      return;
+    }
+
+    try {
+      await saveSocialcastCredentials(accessToken, { platform, credentials });
+      setApiNotice(lang === "en" ? "Credentials saved to UNAPI." : "Credential berhasil disimpan ke UNAPI.");
+      setShowSettingsModal(false);
+    } catch (error) {
+      setApiNotice(
+        error instanceof Error
+          ? error.message
+          : lang === "en"
+            ? "Credentials could not be saved to UNAPI."
+            : "Credential belum berhasil disimpan ke UNAPI."
+      );
+    }
+  }
 
   const hasImportedContent = rawText.trim().length > 0;
   const hasChunks = chunks.length > 0;
@@ -2325,7 +2392,7 @@ export default function App() {
     event.target.value = "";
   }
 
-  function insertVideoLinkForDraft(draftId: string) {
+  async function insertVideoLinkForDraft(draftId: string) {
     const rawUrl = window.prompt(
       lang === "en"
         ? "Paste a YouTube, Google Drive, or other video link."
@@ -2361,6 +2428,40 @@ export default function App() {
     setMediaAssets((prev) => [asset, ...prev]);
     setMediaNotNeededDraftIds((prev) => prev.filter((id) => id !== draftId));
     setApiNotice(lang === "en" ? "Video link added." : "Link video berhasil ditambahkan.");
+
+    if (!accessToken) return;
+
+    const draft = drafts.find((item) => item.id === draftId);
+    const busyKey = `${draftId}-link-video`;
+    setMediaBusy((prev) => ({ ...prev, [busyKey]: true }));
+    try {
+      const response = await importMediaLinkOnUnapi(accessToken, {
+        app_code: APP_CODE,
+        postId: draftId,
+        postCode,
+        mediaType: "video",
+        url: cleanUrl,
+        name: asset.originalName,
+        caption: draft?.caption,
+        visualPrompt: draft?.visualPrompt,
+        platforms: draft?.platforms,
+        version,
+        storedName: asset.storedName,
+      });
+      const remoteAsset = mapRemoteMediaAsset(response.asset, draftId, postCode, "video", "link", asset.storedName, version);
+      setMediaAssets((prev) => prev.map((item) => (item.id === asset.id ? remoteAsset : item)));
+      setApiNotice(lang === "en" ? "Video link synced to UNAPI." : "Link video berhasil disinkronkan ke UNAPI.");
+    } catch (error) {
+      setApiNotice(
+        error instanceof Error
+          ? error.message
+          : lang === "en"
+            ? "Video link is visible locally, but it could not be synced to UNAPI yet."
+            : "Link video sudah tampil lokal, tetapi belum berhasil disinkronkan ke UNAPI."
+      );
+    } finally {
+      setMediaBusy((prev) => ({ ...prev, [busyKey]: false }));
+    }
   }
 
   function markNoMediaNeeded(draftId: string) {
@@ -2913,15 +3014,15 @@ export default function App() {
                 <>
                   <label>
                     <span>AI API Key</span>
-                    <input type="password" placeholder="sk-..." />
+                    <input type="password" placeholder="sk-..." value={credentialValues["ai.api_key"] || ""} onChange={(event) => updateCredentialValue("ai.api_key", event.target.value)} />
                   </label>
                   <label>
                     <span>AI Media Endpoint URL</span>
-                    <input placeholder="/api/media/create" />
+                    <input placeholder="/api/media/create" value={credentialValues["ai.media_endpoint"] || ""} onChange={(event) => updateCredentialValue("ai.media_endpoint", event.target.value)} />
                   </label>
                   <label>
                     <span>AI Text Endpoint URL</span>
-                    <input placeholder="/api/ai/rewrite" />
+                    <input placeholder="/api/ai/rewrite" value={credentialValues["ai.text_endpoint"] || ""} onChange={(event) => updateCredentialValue("ai.text_endpoint", event.target.value)} />
                   </label>
                 </>
               )}
@@ -2930,15 +3031,15 @@ export default function App() {
                 <>
                   <label>
                     <span>Meta Access Token</span>
-                    <input type="password" placeholder="Access token" />
+                    <input type="password" placeholder="Access token" value={credentialValues["instagram.access_token"] || ""} onChange={(event) => updateCredentialValue("instagram.access_token", event.target.value)} />
                   </label>
                   <label>
                     <span>Instagram Account ID</span>
-                    <input placeholder="Instagram Business/Creator ID" />
+                    <input placeholder="Instagram Business/Creator ID" value={credentialValues["instagram.account_id"] || ""} onChange={(event) => updateCredentialValue("instagram.account_id", event.target.value)} />
                   </label>
                   <label>
                     <span>Facebook Page ID</span>
-                    <input placeholder="Connected Page ID" />
+                    <input placeholder="Connected Page ID" value={credentialValues["instagram.page_id"] || ""} onChange={(event) => updateCredentialValue("instagram.page_id", event.target.value)} />
                   </label>
                 </>
               )}
@@ -2947,15 +3048,15 @@ export default function App() {
                 <>
                   <label>
                     <span>Page Access Token</span>
-                    <input type="password" placeholder="Access token" />
+                    <input type="password" placeholder="Access token" value={credentialValues["facebook.access_token"] || ""} onChange={(event) => updateCredentialValue("facebook.access_token", event.target.value)} />
                   </label>
                   <label>
                     <span>Facebook Page ID</span>
-                    <input placeholder="Page ID" />
+                    <input placeholder="Page ID" value={credentialValues["facebook.page_id"] || ""} onChange={(event) => updateCredentialValue("facebook.page_id", event.target.value)} />
                   </label>
                   <label>
                     <span>Default Page Name</span>
-                    <input placeholder="Page name" />
+                    <input placeholder="Page name" value={credentialValues["facebook.page_name"] || ""} onChange={(event) => updateCredentialValue("facebook.page_name", event.target.value)} />
                   </label>
                 </>
               )}
@@ -2964,15 +3065,15 @@ export default function App() {
                 <>
                   <label>
                     <span>LinkedIn Access Token</span>
-                    <input type="password" placeholder="Access token" />
+                    <input type="password" placeholder="Access token" value={credentialValues["linkedin.access_token"] || ""} onChange={(event) => updateCredentialValue("linkedin.access_token", event.target.value)} />
                   </label>
                   <label>
                     <span>Author URN</span>
-                    <input placeholder="urn:li:person:... or urn:li:organization:..." />
+                    <input placeholder="urn:li:person:... or urn:li:organization:..." value={credentialValues["linkedin.author_urn"] || ""} onChange={(event) => updateCredentialValue("linkedin.author_urn", event.target.value)} />
                   </label>
                   <label>
                     <span>Post As</span>
-                    <select defaultValue="person">
+                    <select value={credentialValues["linkedin.post_as"] || "person"} onChange={(event) => updateCredentialValue("linkedin.post_as", event.target.value)}>
                       <option value="person">Personal profile</option>
                       <option value="organization">Organization page</option>
                     </select>
@@ -2984,15 +3085,15 @@ export default function App() {
                 <>
                   <label>
                     <span>X / Twitter Access Token</span>
-                    <input type="password" placeholder="Access token" />
+                    <input type="password" placeholder="Access token" value={credentialValues["x.access_token"] || ""} onChange={(event) => updateCredentialValue("x.access_token", event.target.value)} />
                   </label>
                   <label>
                     <span>X / Twitter User ID</span>
-                    <input placeholder="User ID" />
+                    <input placeholder="User ID" value={credentialValues["x.user_id"] || ""} onChange={(event) => updateCredentialValue("x.user_id", event.target.value)} />
                   </label>
                   <label>
                     <span>Handle</span>
-                    <input placeholder="@username" />
+                    <input placeholder="@username" value={credentialValues["x.handle"] || ""} onChange={(event) => updateCredentialValue("x.handle", event.target.value)} />
                   </label>
                 </>
               )}
@@ -3001,15 +3102,15 @@ export default function App() {
                 <>
                   <label>
                     <span>YouTube OAuth Token</span>
-                    <input type="password" placeholder="Access token" />
+                    <input type="password" placeholder="Access token" value={credentialValues["youtube.oauth_token"] || ""} onChange={(event) => updateCredentialValue("youtube.oauth_token", event.target.value)} />
                   </label>
                   <label>
                     <span>YouTube Channel ID</span>
-                    <input placeholder="Channel ID" />
+                    <input placeholder="Channel ID" value={credentialValues["youtube.channel_id"] || ""} onChange={(event) => updateCredentialValue("youtube.channel_id", event.target.value)} />
                   </label>
                   <label>
                     <span>Default Privacy</span>
-                    <select defaultValue="private">
+                    <select value={credentialValues["youtube.privacy"] || "private"} onChange={(event) => updateCredentialValue("youtube.privacy", event.target.value)}>
                       <option value="private">Private</option>
                       <option value="unlisted">Unlisted</option>
                       <option value="public">Public</option>
@@ -3021,7 +3122,7 @@ export default function App() {
           </div>
 
           <div className="modal-actions">
-            <Button onClick={() => setShowSettingsModal(false)}>
+            <Button onClick={saveCurrentCredentialPanel}>
               {lang === "en" ? "Done" : "Selesai"}
             </Button>
           </div>
