@@ -89,6 +89,28 @@ export function importArticleChunks(
   );
 }
 
+export function extractSourcePreviewOnUnapi(file: File) {
+  const formData = new FormData();
+  formData.set("file", file);
+
+  return requestJson<{
+    file_name: string;
+    mime_type: string;
+    size: number;
+    source_type: string;
+    text: string;
+    pages: number;
+    error?: string | null;
+  }>(
+    UNAPI_BASE_URL,
+    "/api/articles/source-preview",
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
+}
+
 export function saveArticleDraft(accessToken: string, payload: Record<string, unknown>) {
   return requestJson<unknown>(
     UNAPI_BASE_URL,

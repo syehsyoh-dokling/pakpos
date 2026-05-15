@@ -11,6 +11,7 @@ import "./App.css";
 import {
   APP_CODE,
   ensurePakposAccess,
+  extractSourcePreviewOnUnapi,
   forgotPasswordUnapi,
   generateMediaOnUnapi,
   getArticles,
@@ -1449,26 +1450,12 @@ export default function App() {
   }
 
   async function extractSourcePreview(file: File) {
-    const formData = new FormData();
-    formData.set("file", file);
-
-    const response = await fetch("/api/source-preview", {
-      method: "POST",
-      body: formData,
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      throw new Error(
-        lang === "en"
-          ? "File loaded successfully. To view it, open the Source View panel below."
-          : "File berhasil dimuat. Untuk melihatnya, buka panel Source View di bawah."
-      );
-    }
+    const payload = await extractSourcePreviewOnUnapi(file);
 
     return {
-      text: String(payload?.data?.text || ""),
-      pages: Number(payload?.data?.pages || 1),
-      error: payload?.data?.error || null,
+      text: String(payload?.text || ""),
+      pages: Number(payload?.pages || 1),
+      error: payload?.error || null,
     };
   }
 
