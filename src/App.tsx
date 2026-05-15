@@ -1131,6 +1131,24 @@ export default function App() {
 
   function setApiError(error: unknown, fallback: string) {
     const rawMessage = error instanceof Error ? error.message : "";
+    const isExpiredSession =
+      rawMessage.toLowerCase().includes("invalid or expired access token") ||
+      rawMessage.toLowerCase().includes("session is no longer active") ||
+      rawMessage.toLowerCase().includes("bearer token is required");
+    if (isExpiredSession) {
+      const message =
+        lang === "en"
+          ? "Your login session has expired. Please log in again, then continue from the imported file."
+          : "Sesi login Anda sudah berakhir. Silakan login ulang, lalu lanjutkan dari file yang sudah diimport.";
+      clearSession();
+      setLandingMode("login");
+      setImportBusy(false);
+      setAuthBusy(false);
+      setApiNotice(message);
+      alert(message);
+      return;
+    }
+
     const looksTechnical =
       rawMessage.includes("Command failed") ||
       rawMessage.includes("Traceback") ||
