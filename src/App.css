@@ -4605,3 +4605,27 @@ h2 {
   }
 }
 
+/* Keep the workspace footer as the visual end of the page. */
+.workspace-section {
+  padding-bottom: 12px !important;
+}
+
+.workspace-section > .site-footer {
+  margin-top: 16px !important;
+  padding-bottom: 0 !important;
+}
+
+.workspace-section > .site-footer .site-footer-inner {
+  margin-bottom: 0 !important;
+}
+
+@media (max-width: 720px) {
+  .workspace-section {
+    padding-bottom: 8px !important;
+  }
+
+  .workspace-section > .site-footer {
+    margin-top: 12px !important;
+  }
+}
+
