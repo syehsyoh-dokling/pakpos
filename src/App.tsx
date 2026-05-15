@@ -1149,6 +1149,16 @@ export default function App() {
       return;
     }
 
+    if (rawMessage.toLowerCase() === "failed to fetch") {
+      const message =
+        lang === "en"
+          ? "The server could not be reached from this page. Please try again; if it still happens, log in again and continue from the imported file."
+          : "Halaman belum berhasil terhubung ke server. Silakan coba lagi; jika masih muncul, login ulang lalu lanjutkan dari file yang sudah diimport.";
+      setApiNotice(message);
+      alert(message);
+      return;
+    }
+
     const looksTechnical =
       rawMessage.includes("Command failed") ||
       rawMessage.includes("Traceback") ||
@@ -1607,26 +1617,25 @@ export default function App() {
 
   function buildFileImportPayload(
     content: ImportedContent,
-    file: File,
     fallbackChunks: string[],
     textOverride?: string
   ) {
     const payloadText = textOverride || content.rawText;
-    const formData = new FormData();
-    formData.set("app_code", APP_CODE);
-    formData.set("source_type", content.sourceType);
-    formData.set("source_name", content.sourceName);
-    formData.set("raw_text", payloadText);
-    formData.set("text", payloadText);
-    formData.set("split_method", splitMethod);
-    formData.set("max_chars", String(maxChars));
-    formData.set("min_words", String(splitMinWords));
-    formData.set("max_words", String(splitMaxWords));
-    formData.set("start_code", startCode);
-    formData.set("end_code", endCode);
-    formData.set("chunks", JSON.stringify(fallbackChunks));
-    formData.set("file", file);
-    return formData;
+    return {
+      app_code: APP_CODE,
+      source_type: content.sourceType,
+      source_name: content.sourceName,
+      raw_text: payloadText,
+      text: payloadText,
+      content: payloadText,
+      split_method: splitMethod,
+      max_chars: maxChars,
+      min_words: splitMinWords,
+      max_words: splitMaxWords,
+      start_code: startCode,
+      end_code: endCode,
+      chunks: fallbackChunks,
+    };
   }
 
   async function ensureReadableTextForSplit() {
@@ -1733,7 +1742,7 @@ export default function App() {
     try {
       const endpointPayload =
         importedContent?.sourceType === "file" && importedFile
-          ? buildFileImportPayload(importedContent, importedFile, result, splitSourceText)
+          ? buildFileImportPayload(importedContent, result, splitSourceText)
           : {
               app_code: APP_CODE,
               source_type: importedContent?.sourceType,
