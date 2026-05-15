@@ -36,6 +36,7 @@ import {
   type UnapiSession,
   type UnapiUser,
 } from "./unapi";
+import AutoPostLanding from "./AutoPostLanding";
 
 type PlatformId =
   | "instagram"
@@ -2732,6 +2733,30 @@ export default function App() {
 
     setLandingMode("workspace");
     setStep(target === "review" ? "split" : target);
+  }
+
+  if (landingMode === "landing") {
+    return (
+      <AutoPostLanding
+        lang={lang}
+        isAuthenticated={Boolean(user)}
+        userName={user?.name}
+        userEmail={user?.email}
+        onLanguageChange={switchLanguage}
+        onStart={handleStartCreating}
+        onDemo={handleStartCreating}
+        onLogin={() => setLandingMode("login")}
+        onSettings={() => setShowSettingsModal(true)}
+        onLogout={handleLogout}
+        onMenuSelect={(target) => {
+          if (!user) {
+            setLandingMode("login");
+            return;
+          }
+          openWorkspaceStep(target);
+        }}
+      />
+    );
   }
 
   function renderLandingHeader() {
@@ -5466,7 +5491,6 @@ export default function App() {
       <section className="hero-bg" />
 
       {renderLandingHeader()}
-      {renderLandingHero()}
       {renderLoginPanel()}
       {renderRegisterModal()}
       {renderStartChoiceModal()}
