@@ -2252,3 +2252,97 @@
 
 /* END STAGE CENTER BALANCE PATCH */
 
+/* APP SHELL PATCH
+   The stage-center design is now the only outer shell. Legacy pages are mounted
+   inside this dark shell so their behavior stays intact without the old landing UI.
+*/
+
+.apx-app-page {
+  min-height: 100vh !important;
+}
+
+.apx-app-page .apx-mainWrap {
+  grid-template-columns: 176px minmax(0, 1fr) !important;
+  min-height: calc(100vh - 58px) !important;
+}
+
+.apx-app-page .apx-workflow-content {
+  width: 100% !important;
+  min-width: 0 !important;
+  padding: 34px clamp(28px, 7vw, 118px) 18px !important;
+}
+
+.apx-app-page .workspace-section {
+  width: min(1120px, 100%) !important;
+  margin: 0 auto !important;
+  padding: 0 0 12px !important;
+}
+
+.apx-app-page .apx-embedded-workspace {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.apx-app-page .auth-section {
+  width: min(1120px, 100%) !important;
+  margin: 0 auto !important;
+  padding: 0 !important;
+}
+
+.apx-app-page .auth-card,
+.apx-app-page .panel,
+.apx-app-page .modal-backdrop .glass {
+  color: #e9eef0;
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(145deg, rgba(30, 30, 30, 0.94), rgba(13, 13, 13, 0.9)),
+    radial-gradient(circle at top left, rgba(200, 255, 0, 0.08), transparent 34%);
+}
+
+.apx-app-page .auth-card h2,
+.apx-app-page .panel h1,
+.apx-app-page .panel h2,
+.apx-app-page .panel h3,
+.apx-app-page .workspace-user strong {
+  color: #f8fafc;
+}
+
+.apx-app-page .section-desc,
+.apx-app-page .panel p,
+.apx-app-page .workspace-user small,
+.apx-app-page .workspace-user span {
+  color: rgba(233, 238, 240, 0.7);
+}
+
+.apx-app-page .page-grid,
+.apx-app-page .split-layout,
+.apx-app-page .review-full-page {
+  width: 100% !important;
+}
+
+.apx-app-page .workspace-content {
+  min-width: 0 !important;
+}
+
+@media (max-width: 1050px) {
+  .apx-app-page .apx-mainWrap {
+    grid-template-columns: 1fr !important;
+  }
+
+  .apx-app-page .apx-sidebar {
+    display: none !important;
+  }
+
+  .apx-app-page .apx-workflow-content {
+    padding: 24px 24px 14px !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .apx-app-page .apx-workflow-content {
+    padding: 18px 14px 10px !important;
+  }
+}
+
+/* END APP SHELL PATCH */
+

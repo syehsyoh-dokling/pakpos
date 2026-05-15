@@ -2759,6 +2759,135 @@ export default function App() {
     );
   }
 
+  function renderStageNav() {
+    return (
+      <nav className="apx-nav">
+        <div className="apx-navBrand">
+          <div className="apx-navLogo">AP</div>
+          <div>
+            <div className="apx-navTitle">Auto POST</div>
+            <div className="apx-navSub">Content Splitter & Social Scheduler</div>
+          </div>
+        </div>
+
+        <div className="apx-navRight">
+          <button
+            className={lang === "en" ? "apx-lang active" : "apx-lang"}
+            type="button"
+            onClick={() => switchLanguage("en")}
+          >
+            EN
+          </button>
+          <button
+            className={lang === "id" ? "apx-lang active" : "apx-lang"}
+            type="button"
+            onClick={() => switchLanguage("id")}
+          >
+            ID
+          </button>
+          {user && (
+            <button className="apx-navBtn" type="button" onClick={() => setShowSettingsModal(true)}>
+              Setting
+            </button>
+          )}
+          {user ? (
+            <button className="apx-logoutBtn" type="button" onClick={handleLogout}>
+              Logout
+            </button>
+          ) : (
+            <button className="apx-navBtn" type="button" onClick={() => setLandingMode("login")}>
+              Login
+            </button>
+          )}
+        </div>
+      </nav>
+    );
+  }
+
+  function renderStageSidebar() {
+    const items: Array<{
+      step: StepName;
+      title: string;
+      desc: string;
+      badge?: number;
+    }> = [
+      {
+        step: "import",
+        title: "Create Content",
+        desc: lang === "en" ? "Import file, URL, or paste" : "Import file, URL, atau paste",
+        badge: importedContent ? 1 : 0,
+      },
+      {
+        step: "split",
+        title: "Split File",
+        desc: lang === "en" ? "Choose split method" : "Pilih cara split konten",
+        badge: chunks.length,
+      },
+      {
+        step: "review",
+        title: "Split Results",
+        desc: lang === "en" ? "Edit generated chunks" : "Edit hasil chunk baru",
+        badge: drafts.length,
+      },
+      {
+        step: "media",
+        title: "Media Studio",
+        desc: lang === "en" ? "Prepare image and video" : "Siapkan gambar dan video",
+        badge: mediaAssets.length,
+      },
+      {
+        step: "schedule",
+        title: "Schedule / Publish",
+        desc: lang === "en" ? "Schedule publishing queue" : "Jadwalkan antrean publish",
+        badge: queue.length,
+      },
+      {
+        step: "analytics",
+        title: "Analytics",
+        desc: lang === "en" ? "View performance simulation" : "Simulasi performa posting",
+        badge: stats.length,
+      },
+    ];
+
+    return (
+      <aside className="apx-sidebar">
+        <div className="apx-userCard">
+          <div className="apx-userTag">
+            <span className="apx-glowDot" />
+            {user ? "Logged in" : lang === "en" ? "Welcome" : "Selamat datang"}
+          </div>
+          <div className="apx-userName">{user?.name || "Auto POST Guest"}</div>
+          <div className="apx-userEmail">{user?.email || "Login untuk menyimpan workflow konten"}</div>
+        </div>
+
+        <div className="apx-sidebarLabel">{lang === "en" ? "Main Menu" : "Menu Utama"}</div>
+        <div className="apx-sidebarMenu">
+          {items.map((item, index) => {
+            const disabled = user ? stepDisabled(item.step) : false;
+            const active = user && step === item.step;
+
+            return (
+              <button
+                key={item.step}
+                type="button"
+                className={`apx-menuItem ${active ? "active" : ""}`}
+                onClick={() => (user ? openWorkspaceStep(item.step) : setLandingMode("login"))}
+                disabled={disabled}
+              >
+                <span className="apx-menuIcon">{String(index + 1).padStart(2, "0")}</span>
+                <span className="apx-menuText">
+                  <span className="apx-menuTitle">{item.title}</span>
+                  <span className="apx-menuDesc">{item.desc}</span>
+                </span>
+                {!!item.badge && <b>{item.badge}</b>}
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+    );
+  }
+
   function renderLandingHeader() {
     return (
       <header className="landing-topbar">
@@ -3570,19 +3699,15 @@ export default function App() {
     if (!user || landingMode !== "workspace") return null;
 
     return (
-      <section className="workspace-section" id="workspace">
-        <div className="workspace-shell">
-          {renderWorkspaceMenu()}
-
-          <section className="workspace-content">
-            {step === "import" && renderImportStep()}
-            {step === "split" && renderSplitStep()}
-            {step === "review" && renderReviewStep()}
-            {step === "media" && renderMediaStep()}
-            {step === "schedule" && renderScheduleStep()}
-            {step === "analytics" && renderAnalyticsStep()}
-          </section>
-        </div>
+      <section className="workspace-section apx-workspace-section" id="workspace">
+        <section className="workspace-content apx-embedded-workspace">
+          {step === "import" && renderImportStep()}
+          {step === "split" && renderSplitStep()}
+          {step === "review" && renderReviewStep()}
+          {step === "media" && renderMediaStep()}
+          {step === "schedule" && renderScheduleStep()}
+          {step === "analytics" && renderAnalyticsStep()}
+        </section>
       </section>
     );
   }
@@ -5487,18 +5612,20 @@ export default function App() {
   }
 
   return (
-    <main className="app-shell">
-      <section className="hero-bg" />
-
-      {renderLandingHeader()}
-      {renderLoginPanel()}
+    <main className="apx-page apx-app-page">
+      {renderStageNav()}
+      <div className="apx-mainWrap">
+        {renderStageSidebar()}
+        <main className="apx-contentArea apx-workflow-content">
+          {renderLoginPanel()}
+          {renderWorkspaceSection()}
+        </main>
+      </div>
       {renderRegisterModal()}
       {renderStartChoiceModal()}
       {renderSettingsModal()}
       {renderImportHistoryModal()}
       {renderSplitConfigModal()}
-      {renderWorkspaceSection()}
-      {renderFooter()}
     </main>
   );
 }
